@@ -1,0 +1,23 @@
+{
+  "name": "es6-module-use-cycles",
+  "version": "1.0.0",
+  "description": "Detects problematic cycles across ES6 modules.",
+  "main": "bin/index.js",
+  "scripts": {
+    "build": "tsc",
+    "prestart": "tsc",
+    "start": "node bin/index.js"
+  },
+  "author": "Dave Townsend <dtownsend@oxymoronical.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/eslint": "^6.1.3",
+    "@types/node": "^13.1.8",
+    "@types/yargs": "^15.0.0",
+    "typescript": "^3.7.5"
+  },
+  "dependencies": {
+    "eslint": "^6.8.0",
+    "yargs": "^15.1.0"
+  }
+}
