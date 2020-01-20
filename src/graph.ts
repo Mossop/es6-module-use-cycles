@@ -5,18 +5,17 @@ import { CLIEngine, Linter, Rule } from "eslint";
 
 import { ModuleInfo } from "./moduleinfo";
 import createRule from "./parser";
+import { findWorkingDirectory } from "./utils";
 
 export default class ModuleGraph {
   private engine: CLIEngine;
-  private isParsing: boolean = false;
-  private parseQueue: string[] = [];
-  private moduleOrder: string[] = [];
   private formatter: CLIEngine.Formatter;
   private workingDirectory: string;
+  private parseStack: string[] = [];
+  private seenModules: Map<string, ModuleInfo> = new Map();
 
   public constructor(private entrypoint: string, private extensions: string[]) {
-    let wd = path.dirname(entrypoint);
-    this.workingDirectory = this.findWorkingDirectory(wd) || wd;
+    this.workingDirectory = findWorkingDirectory(entrypoint);
 
     this.engine = new CLIEngine({
       extensions: this.extensions,
@@ -24,20 +23,12 @@ export default class ModuleGraph {
     });
     this.formatter = this.engine.getFormatter();
 
+    // Start parsing at the first file.
     this.parseFile(this.entrypoint);
-  }
 
-  public findWorkingDirectory(directory: string): string | null {
-    if (fs.existsSync(path.join(directory, "package.json"))) {
-      return directory;
+    if (this.parseStack.length) {
+      throw new Error(`Parsing left a non-empty parse stack: ${JSON.stringify(this.parseStack)}`);
     }
-
-    let parent = path.dirname(directory);
-    if (parent == directory) {
-      return null;
-    }
-
-    return this.findWorkingDirectory(parent);
   }
 
   public displayLintErrors(file: string, messages: Linter.LintMessage[]): void {
@@ -73,6 +64,7 @@ export default class ModuleGraph {
   }
 
   public resolveModule(sourceFile: string, target: string): string | null {
+    // Resolve a module to its target file.
     let filePath = path.resolve(path.dirname(sourceFile), target);
     try {
       let stats = fs.statSync(filePath);
@@ -94,74 +86,69 @@ export default class ModuleGraph {
     return null;
   }
 
-  public parseModule(source: string, target: string): void {
+  public parseModule(source: string, target: string): ModuleInfo | null {
     let resolved = this.resolveModule(source, target);
     if (!resolved) {
-      console.error(`Unable to resolve module reference ${target} from ${source}`);
-      return;
+      throw new Error(`Unable to resolve module reference ${target} from ${source}`);
     }
 
-    this.parseFile(resolved);
+    return this.seenModules.get(resolved) || this.parseFile(resolved);
   }
 
-  public parseFile(file: string): void {
-    if (this.moduleOrder.includes(file)) {
-      return;
+  public parseFile(fileToParse: string): ModuleInfo | null {
+    // If this file is already higher up in the parse tree then don't parse it again.
+    // This indicates a module cycle.
+    if (this.parseStack.includes(fileToParse)) {
+      console.warn("Found module cycle", ...this.parseStack, fileToParse);
+      return null;
     }
 
-    this.parseQueue.push(file);
-    this.moduleOrder.unshift(file);
+    this.parseStack.push(fileToParse);
 
-    if (this.isParsing) {
-      return;
-    }
+    let config = this.engine.getConfigForFile(fileToParse);
+    config.plugins = [];
+    config.rules = {
+      "graph-parse": "error",
+    };
 
-    this.isParsing = true;
-    try {
-      while (this.parseQueue.length > 0) {
-        let fileToParse = this.parseQueue.shift();
-        if (!fileToParse) {
-          return;
-        }
+    let relativePath = path.relative(this.workingDirectory, fileToParse);
+    let moduleInfo = new ModuleInfo(fileToParse, this);
 
-        let config = this.engine.getConfigForFile(fileToParse);
-        config.plugins = [];
-        config.rules = {
-          "graph-parse": "error",
-        };
-
-        let relativePath = path.relative(this.workingDirectory, fileToParse);
-        let moduleInfo = new ModuleInfo(fileToParse, this);
-
-        // @ts-ignore
-        let linter = new Linter({ cwd: this.workingDirectory });
-        linter.defineRule("graph-parse", {
-          create: (context: Rule.RuleContext): Rule.RuleListener => {
-            return createRule(context, this, moduleInfo);
-          }
-        });
-
-        if (config.parser) {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          let parser = require(config.parser);
-          config.parser = "resolved-parser";
-          linter.defineParser("resolved-parser", parser);
-        }
-
-        let code = fs.readFileSync(fileToParse, { encoding: "utf8" });
-
-        process.chdir(this.workingDirectory);
-        let errors = (linter.verify(code, config, {
-          filename: relativePath,
-          allowInlineConfig: false,
-        }));
-
-        if (errors.length) {
-          this.displayLintErrors(fileToParse, errors);
-        }
+    // The types for Linter don't seem to be correct.
+    // @ts-ignore
+    let linter = new Linter({ cwd: this.workingDirectory });
+    linter.defineRule("graph-parse", {
+      create: (context: Rule.RuleContext): Rule.RuleListener => {
+        return createRule(context, moduleInfo);
       }
-    } finally {
-      this.isParsing = false;
+    });
+
+    if (config.parser) {
+      // For some reason Linter can't resolve the parser correctly, resolve it ourselves.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      let parser = require(config.parser);
+      config.parser = "resolved-parser";
+      linter.defineParser("resolved-parser", parser);
     }
+
+    let code = fs.readFileSync(fileToParse, { encoding: "utf8" });
+
+    // Run from the right directory so eslint can find its modules.
+    let cwd = process.cwd();
+    process.chdir(this.workingDirectory);
+    let errors = (linter.verify(code, config, {
+      filename: relativePath,
+      allowInlineConfig: false,
+    }));
+    process.chdir(cwd);
+
+    // Should only happen when there is a bad eslint config.
+    if (errors.length) {
+      this.displayLintErrors(fileToParse, errors);
+    }
+
+    this.seenModules.set(fileToParse, moduleInfo);
+    this.parseStack.pop();
+    return moduleInfo;
   }
 }

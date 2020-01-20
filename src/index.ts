@@ -1,40 +1,29 @@
-import path from "path";
-
-import yargs from "yargs";
-
+import { buildArgumentParser, Options, DefaultOptions } from "./cli";
 import ModuleGraph from "./graph";
 
-interface Options {
-  _: string[];
-  ext: string[];
-}
-
-function detectCycles({ _: entrypoints, ext: extensions }: Options): void {
-  entrypoints = entrypoints.map((filename: string) => path.resolve(filename));
-  let extensionSet = extensions.reduce((set: Set<string>, current: string): Set<string> => {
-    for (let extension of current.split(",")) {
-      set.add(extension);
-    }
-    return set;
-  }, new Set<string>());
-
-  for (let entrypoint of entrypoints) {
-    new ModuleGraph(entrypoint, Array.from(extensionSet));
+function detectCycles(options: DefaultOptions): void {
+  for (let entrypoint of options.entrypoints) {
+    new ModuleGraph(entrypoint, options.extensions);
   }
 }
 
-yargs.command("*", "Detect module cycles.", (yargs: yargs.Argv<{}>) => {
-  yargs
-    .positional("entrypoints", {
-      type: "string",
-      description: "The scripts that are the entry points to your application.",
-      defaultDescription: "main from package.json"
-    })
-    .option("ext", {
-      type: "string",
-      description: "JavaScript file extensions.",
-      default: ".js",
-      array: true,
-      nargs: 1,
-    });
-}, detectCycles).argv;
+async function cli(): Promise<void> {
+  let parser = buildArgumentParser();
+  let options: Options | null;
+  try {
+    options = await parser.parse();
+    if (!options) {
+      return;
+    }
+
+    detectCycles(options);
+  } catch (e) {
+    console.error(e);
+    parser.help();
+    return;
+  }
+
+  detectCycles(options);
+}
+
+cli();

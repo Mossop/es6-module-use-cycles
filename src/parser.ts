@@ -2,17 +2,16 @@ import { Rule } from "eslint";
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
 
-import ModuleGraph from "./graph";
 import { ModuleInfo } from "./moduleinfo";
 
-export default function createRule(context: Rule.RuleContext, graph: ModuleGraph, _moduleInfo: ModuleInfo): Rule.RuleListener {
+export default function createRule(context: Rule.RuleContext, moduleInfo: ModuleInfo): Rule.RuleListener {
   return {
     "Program": function(_node: ESTree.Program): void {
       console.log(`Parsing ${context.getFilename()}`);
     },
     "ImportDeclaration": function(node: ESTree.ImportDeclaration): void {
       if (typeof node.source.value == "string" && node.source.value.startsWith(".")) {
-        graph.parseModule(context.getFilename(), node.source.value);
+        moduleInfo.parseModule(node.source.value);
       //   for (let specifier of node.specifiers) {
       //     switch (specifier.type) {
       //       case "ImportSpecifier":
