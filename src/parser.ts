@@ -1,8 +1,11 @@
 import { Rule } from "eslint";
+// eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
-import ModuleGraph from "./graph";
 
-export default function createRule(context: Rule.RuleContext, graph: ModuleGraph): Rule.RuleListener {
+import ModuleGraph from "./graph";
+import { ModuleInfo } from "./moduleinfo";
+
+export default function createRule(context: Rule.RuleContext, graph: ModuleGraph, _moduleInfo: ModuleInfo): Rule.RuleListener {
   return {
     "Program": function(_node: ESTree.Program): void {
       console.log(`Parsing ${context.getFilename()}`);
