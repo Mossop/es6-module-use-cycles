@@ -1,10 +1,22 @@
+import formatter from "eslint/lib/cli-engine/formatters/stylish";
+
 import { buildArgumentParser, Options, DefaultOptions } from "./cli";
 import ModuleGraph from "./graph";
+import { findWorkingDirectory } from "./utils";
 
 function detectCycles(options: DefaultOptions): void {
+  let workingDirectory = findWorkingDirectory(options.entrypoints[0]);
+  let graph = new ModuleGraph({
+    extensions: options.extensions,
+    workingDirectory,
+  });
+
   for (let entrypoint of options.entrypoints) {
-    new ModuleGraph(entrypoint, options.extensions);
+    graph.parseEntrypoint(entrypoint);
   }
+
+  let issues = graph.getIssues(options.issueTypes);
+  console.log(formatter(issues));
 }
 
 async function cli(): Promise<void> {
@@ -22,8 +34,6 @@ async function cli(): Promise<void> {
     parser.help();
     return;
   }
-
-  detectCycles(options);
 }
 
 cli();

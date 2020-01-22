@@ -4,14 +4,14 @@ import * as ESTree from "estree";
 
 import { ModuleInfo } from "./moduleinfo";
 
-export default function createRule(context: Rule.RuleContext, moduleInfo: ModuleInfo): Rule.RuleListener {
+export default function createRule(_context: Rule.RuleContext, moduleInfo: ModuleInfo): Rule.RuleListener {
   return {
     "Program": function(_node: ESTree.Program): void {
-      console.log(`Parsing ${context.getFilename()}`);
+      // TODO
     },
     "ImportDeclaration": function(node: ESTree.ImportDeclaration): void {
       if (typeof node.source.value == "string" && node.source.value.startsWith(".")) {
-        moduleInfo.parseModule(node.source.value);
+        moduleInfo.parseModule(node.source.value, node);
       //   for (let specifier of node.specifiers) {
       //     switch (specifier.type) {
       //       case "ImportSpecifier":

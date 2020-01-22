@@ -2,10 +2,14 @@ import path from "path";
 
 import yargs from "yargs";
 
+import { IssueType } from "./graph";
+import { NonEmptyArray, makeNonEmpty } from "./utils";
+
 export interface DefaultOptions {
   command: "*";
-  entrypoints: string[];
+  entrypoints: NonEmptyArray<string>;
   extensions: string[];
+  issueTypes: IssueType[];
 }
 
 export type Options = DefaultOptions;
@@ -16,10 +20,11 @@ type Rejecter<T> = (arg: T) => void;
 interface DefaultArguments {
   _: string[];
   ext: string[];
+  allCycles: boolean;
 }
 
-function parseDefaultArguments({ _: entrypoints, ext: extensions }: DefaultArguments): DefaultOptions {
-  if (entrypoints.length == 0) {
+function parseDefaultArguments({ _: entrypoints, ext: extensions, allCycles }: DefaultArguments): DefaultOptions {
+  if (!entrypoints.length) {
     throw new Error("At least one entrypoint must be provided.");
   }
 
@@ -37,10 +42,16 @@ function parseDefaultArguments({ _: entrypoints, ext: extensions }: DefaultArgum
     return set;
   }, new Set<string>());
 
+  let issueTypes = [IssueType.ImportExportDependency, IssueType.UseOfUndefined];
+  if (allCycles) {
+    issueTypes.push(IssueType.ImportCycle);
+  }
+
   return {
     command: "*",
-    entrypoints: entrypoints.map((filename: string) => path.resolve(filename)),
+    entrypoints: makeNonEmpty(entrypoints.map((filename: string) => path.resolve(filename))),
     extensions: Array.from(extensionSet),
+    issueTypes,
   };
 }
 
@@ -71,21 +82,27 @@ export function buildArgumentParser(): ArgumentParser {
     rejecter = reject;
   });
 
-  const parser = yargs.command("*", "Detect module cycles.", (yargs: yargs.Argv<{}>) => {
-    yargs
-      .positional("entrypoints", {
-        type: "string",
-        description: "The scripts that are the entry points to your application.",
-        defaultDescription: "main from package.json"
-      })
-      .option("ext", {
-        type: "string",
-        description: "JavaScript file extensions.",
-        default: ".js",
-        array: true,
-        nargs: 1,
-      });
-  }, commandFunction(parseDefaultArguments, resolver, rejecter))
+  const parser = yargs
+    .command("*", "Detect module cycles.", (yargs: yargs.Argv<{}>) => {
+      yargs
+        .positional("entrypoints", {
+          type: "string",
+          description: "The scripts that are the entry points to your application.",
+          defaultDescription: "main from package.json"
+        })
+        .option("allCycles", {
+          boolean: true,
+          default: false,
+          description: "Displays all module cycles, even ones that may not be a problem.",
+        })
+        .option("ext", {
+          type: "string",
+          description: "JavaScript file extensions.",
+          default: ".js",
+          array: true,
+          nargs: 1,
+        });
+    }, commandFunction(parseDefaultArguments, resolver, rejecter))
     .help()
     .exitProcess(false);
 
@@ -100,7 +117,7 @@ export function buildArgumentParser(): ArgumentParser {
         parser.parse();
       }
 
-      // This is a no-op if a command was run.
+      // This is a no-op if a command was already run.
       if (resolver) {
         resolver(null);
       }

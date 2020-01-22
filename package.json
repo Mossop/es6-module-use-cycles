@@ -4,10 +4,10 @@
   "description": "Detects problematic cycles across ES6 modules.",
   "main": "bin/index.js",
   "scripts": {
-    "build": "tsc",
-    "prestart": "tsc",
+    "build": "tsc -p ./tsconfig.build.json",
+    "prestart": "tsc -p ./tsconfig.build.json",
     "start": "node bin/index.js",
-    "lint": "eslint --ext .ts,.js src",
+    "lint": "eslint --ext .ts,.js .",
     "test": "jest"
   },
   "author": "Dave Townsend <dtownsend@oxymoronical.com>",
