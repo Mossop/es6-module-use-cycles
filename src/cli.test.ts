@@ -7,6 +7,16 @@ test("Parses basic arguments", async() => {
   expect(await parser.parse(["a"])).toMatchObject({
     entrypoints: [path.resolve("a")],
     extensions: [".js"],
+    includeWarnings: false,
+  });
+});
+
+test("Allow warnings", async() => {
+  let parser = buildArgumentParser();
+  expect(await parser.parse(["a", "--warnings"])).toMatchObject({
+    entrypoints: [path.resolve("a")],
+    extensions: [".js"],
+    includeWarnings: true,
   });
 });
 
@@ -38,5 +48,6 @@ test("Parses extensions", async() => {
   expect(result).toMatchObject({
     entrypoints: [path.resolve("a"), path.resolve("b"), path.resolve("c")],
     extensions: expected,
+    includeWarnings: false,
   });
 });

@@ -2,14 +2,20 @@ import path from "path";
 
 import yargs from "yargs";
 
-import { IssueType } from "./graph";
-import { NonEmptyArray, makeNonEmpty } from "./utils";
+export type NonEmptyArray<T> = [T, ...T[]];
+
+export function makeNonEmpty<T>(arr: T[]): NonEmptyArray<T> {
+  if (arr.length > 0) {
+    return arr as NonEmptyArray<T>;
+  }
+  throw new Error("Expected a non-empty array but got a zero length array.");
+}
 
 export interface DefaultOptions {
   command: "*";
   entrypoints: NonEmptyArray<string>;
   extensions: string[];
-  issueTypes: IssueType[];
+  includeWarnings: boolean;
 }
 
 export type Options = DefaultOptions;
@@ -20,10 +26,10 @@ type Rejecter<T> = (arg: T) => void;
 interface DefaultArguments {
   _: string[];
   ext: string[];
-  allCycles: boolean;
+  warnings: boolean;
 }
 
-function parseDefaultArguments({ _: entrypoints, ext: extensions, allCycles }: DefaultArguments): DefaultOptions {
+function parseDefaultArguments({ _: entrypoints, ext: extensions, warnings }: DefaultArguments): DefaultOptions {
   if (!entrypoints.length) {
     throw new Error("At least one entrypoint must be provided.");
   }
@@ -42,16 +48,11 @@ function parseDefaultArguments({ _: entrypoints, ext: extensions, allCycles }: D
     return set;
   }, new Set<string>());
 
-  let issueTypes = [IssueType.ImportExportDependency, IssueType.UseOfUndefined];
-  if (allCycles) {
-    issueTypes.push(IssueType.ImportCycle);
-  }
-
   return {
     command: "*",
     entrypoints: makeNonEmpty(entrypoints.map((filename: string) => path.resolve(filename))),
     extensions: Array.from(extensionSet),
-    issueTypes,
+    includeWarnings: warnings,
   };
 }
 
@@ -90,10 +91,10 @@ export function buildArgumentParser(): ArgumentParser {
           description: "The scripts that are the entry points to your application.",
           defaultDescription: "main from package.json"
         })
-        .option("allCycles", {
+        .option("warnings", {
           boolean: true,
           default: false,
-          description: "Displays all module cycles, even ones that may not be a problem.",
+          description: "Displays warnings as well as errors.",
         })
         .option("ext", {
           type: "string",

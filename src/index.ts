@@ -1,22 +1,37 @@
+import fs from "fs";
+import path from "path";
+
 import formatter from "eslint/lib/cli-engine/formatters/stylish";
 
 import { buildArgumentParser, Options, DefaultOptions } from "./cli";
-import ModuleGraph from "./graph";
-import { findWorkingDirectory } from "./utils";
+import { ModuleHost } from "./host";
+import { intoLintResult , Issue, Severity } from "./issue";
+
+export function findWorkingDirectory(filename: string): string {
+  let directory = path.dirname(filename);
+  if (directory == filename) {
+    return process.cwd();
+  }
+
+  if (fs.existsSync(path.join(directory, "package.json"))) {
+    return directory;
+  }
+
+  return findWorkingDirectory(directory);
+}
 
 function detectCycles(options: DefaultOptions): void {
   let workingDirectory = findWorkingDirectory(options.entrypoints[0]);
-  let graph = new ModuleGraph({
-    extensions: options.extensions,
-    workingDirectory,
-  });
 
-  for (let entrypoint of options.entrypoints) {
-    graph.parseEntrypoint(entrypoint);
+  let host = new ModuleHost(options.extensions, workingDirectory);
+  let sourceText = fs.readFileSync(options.entrypoints[0], { encoding: "utf8" });
+  host.topLevelModuleEvaluation(sourceText, options.entrypoints[0]);
+
+  let issues = host.getIssues();
+  if (!options.includeWarnings) {
+    issues = issues.filter((issue: Issue): boolean => issue.severity == Severity.Error);
   }
-
-  let issues = graph.getIssues(options.issueTypes);
-  console.log(formatter(issues));
+  console.log(formatter(intoLintResult(issues)));
 }
 
 async function cli(): Promise<void> {

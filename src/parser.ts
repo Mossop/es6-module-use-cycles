@@ -2,46 +2,192 @@ import { Rule } from "eslint";
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
 
-import { ModuleInfo } from "./moduleinfo";
+import { IssueError, IssueType, internalError, buildLintMessage, Severity } from "./issue";
+import { SourceTextModuleRecord, ImportEntry, LocalExportEntry, IndirectExportEntry, ExportEntry } from "./modulerecord";
 
-export default function createRule(_context: Rule.RuleContext, moduleInfo: ModuleInfo): Rule.RuleListener {
-  return {
-    "Program": function(_node: ESTree.Program): void {
-      // TODO
-    },
-    "ImportDeclaration": function(node: ESTree.ImportDeclaration): void {
-      if (typeof node.source.value == "string" && node.source.value.startsWith(".")) {
-        moduleInfo.parseModule(node.source.value, node);
-      //   for (let specifier of node.specifiers) {
-      //     switch (specifier.type) {
-      //       case "ImportSpecifier":
-      //         moduleInfo.imports.push({
-      //           module: target,
-      //           type: ImportType.Symbol,
-      //           symbol: specifier.local.name,
-      //           source: specifier.imported.name,
-      //         });
-      //         console.log(`import ${context.getFilename()}:${specifier.local.name} -> ${target}:${specifier.imported.name}`);
-      //         break;
-      //       case "ImportDefaultSpecifier":
-      //         moduleInfo.imports.push({
-      //           module: target,
-      //           type: ImportType.Default,
-      //           symbol: specifier.local.name,
-      //         });
-      //         console.log(`import ${context.getFilename()}:${specifier.local.name} -> ${target}:default`);
-      //         break;
-      //       case "ImportNamespaceSpecifier":
-      //         moduleInfo.imports.push({
-      //           module: target,
-      //           type: ImportType.Namespace,
-      //           symbol: specifier.local.name,
-      //         });
-      //         console.log(`import ${context.getFilename()}:${specifier.local.name} -> ${target}:*`);
-      //         break;
-      //     }
-      //   }
+function* importEntries(filePath: string, program: ESTree.Program): Iterable<ImportEntry> {
+  for (let node of program.body) {
+    switch (node.type) {
+      case "ImportDeclaration": {
+        if (typeof node.source.value != "string") {
+          let lintMessage = buildLintMessage(
+            IssueType.ImportError,
+            `Found an import declaration with a non-string module specifier: ${node.source.value}`,
+            node,
+            Severity.Error,
+          );
+
+          throw new IssueError({
+            severity: Severity.Error,
+            filePath,
+            lintMessage,
+            type: IssueType.ImportError,
+          });
+        }
+        let moduleSpecifier = node.source.value;
+
+        for (let specifier of node.specifiers) {
+          switch (specifier.type) {
+            case "ImportSpecifier":
+              yield new ImportEntry(
+                specifier,
+                moduleSpecifier,
+                specifier.imported.name,
+                specifier.local.name,
+              );
+              break;
+            case "ImportDefaultSpecifier":
+              yield new ImportEntry(
+                specifier,
+                moduleSpecifier,
+                "default",
+                specifier.local.name,
+              );
+              break;
+            case "ImportNamespaceSpecifier":
+              yield new ImportEntry(
+                specifier,
+                moduleSpecifier,
+                "*",
+                specifier.local.name,
+              );
+              break;
+          }
+
+        }
+        break;
       }
-    },
+    }
+  }
+}
+
+function* exportEntries(filePath: string, program: ESTree.Program): Iterable<ExportEntry> {
+  for (let node of program.body) {
+    switch (node.type) {
+      case "ExportNamedDeclaration": {
+        let moduleRequest: string | null;
+        if (node.source) {
+          if (typeof node.source.value != "string") {
+            let lintMessage = buildLintMessage(
+              IssueType.ExportError,
+              `Found an export declaration with a non-string module specifier: ${node.source.value}`,
+              node,
+              Severity.Error,
+            );
+
+            throw new IssueError({
+              severity: Severity.Error,
+              filePath,
+              lintMessage,
+              type: IssueType.ImportError,
+            });
+          }
+          moduleRequest = node.source.value;
+        } else {
+          moduleRequest = null;
+        }
+        for (let specifier of node.specifiers) {
+          if (moduleRequest) {
+            yield new IndirectExportEntry(
+              specifier,
+              specifier.exported.name,
+              moduleRequest,
+              specifier.local.name,
+            );
+          } else {
+            yield new LocalExportEntry(
+              specifier,
+              specifier.exported.name,
+              specifier.local.name,
+            );
+          }
+        }
+        break;
+      }
+      case "ExportDefaultDeclaration": {
+        yield new LocalExportEntry(
+          node,
+          "default",
+          "*default*",
+        );
+        break;
+      }
+      case "ExportAllDeclaration": {
+        if (typeof node.source.value != "string") {
+          let lintMessage = buildLintMessage(
+            IssueType.ExportError,
+            `Found an export declaration with a non-string module specifier: ${node.source.value}`,
+            node,
+            Severity.Error,
+          );
+
+          throw new IssueError({
+            severity: Severity.Error,
+            filePath,
+            lintMessage,
+            type: IssueType.ImportError,
+          });
+        }
+
+        yield new IndirectExportEntry(
+          node,
+          null,
+          node.source.value,
+          "*",
+        );
+        break;
+      }
+    }
+  }
+}
+
+export function createParser(record: SourceTextModuleRecord, context: Rule.RuleContext): Rule.RuleListener {
+  return {
+    "Program": (program: ESTree.Program): void => {
+      try {
+        // https://tc39.es/ecma262/#sec-parsemodule
+
+        // Steps 4-6.
+        for (let importEntry of importEntries(context.getFilename(), program)) {
+          record.importEntries.push(importEntry);
+        }
+
+        // Steps 10-11.
+        for (let exportEntry of exportEntries(context.getFilename(), program)) {
+          if (exportEntry instanceof LocalExportEntry) {
+            let importEntry = record.getImportEntry(exportEntry.localName);
+
+            if (!importEntry) {
+              record.localExportEntries.push(exportEntry);
+            } else {
+              if (importEntry.importName == "*") {
+                record.localExportEntries.push(exportEntry);
+              } else {
+                record.indirectExportEntries.push(new IndirectExportEntry(
+                  exportEntry.node,
+                  exportEntry.exportName,
+                  importEntry.moduleRequest,
+                  importEntry.importName,
+                ));
+              }
+            }
+          } else if (exportEntry.importName == "*" && exportEntry.exportName == null) {
+            record.starExportEntries.push(exportEntry);
+          } else {
+            record.indirectExportEntries.push(exportEntry);
+          }
+        }
+      } catch (exc) {
+        if (exc instanceof IssueError) {
+          record.host.addIssue(exc.issue);
+        } else {
+          record.host.addIssue(internalError(
+            `Parser threw an unexpected exception: ${exc}`,
+            context.getFilename(),
+            null,
+          ));
+        }
+      }
+    }
   };
 }
