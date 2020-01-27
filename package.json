@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -p ./tsconfig.build.json",
     "prestart": "tsc -p ./tsconfig.build.json",
-    "start": "node bin/index.js",
+    "start": "node -r source-map-support/register bin/index.js",
     "lint": "eslint --ext .ts,.js .",
     "test": "jest"
   },
@@ -22,6 +22,7 @@
     "@typescript-eslint/parser": "^2.17.0",
     "eslint-plugin-import": "^2.20.0",
     "jest": "^24.9.0",
+    "source-map-support": "^0.5.16",
     "ts-jest": "^24.3.0",
     "tslint": "^5.20.1",
     "typescript": "^3.7.5"
