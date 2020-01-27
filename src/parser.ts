@@ -32,6 +32,7 @@ function* importEntries(filePath: string, program: ESTree.Program): Iterable<Imp
             case "ImportSpecifier":
               yield new ImportEntry(
                 specifier,
+                node,
                 moduleSpecifier,
                 specifier.imported.name,
                 specifier.local.name,
@@ -40,6 +41,7 @@ function* importEntries(filePath: string, program: ESTree.Program): Iterable<Imp
             case "ImportDefaultSpecifier":
               yield new ImportEntry(
                 specifier,
+                node,
                 moduleSpecifier,
                 "default",
                 specifier.local.name,
@@ -48,6 +50,7 @@ function* importEntries(filePath: string, program: ESTree.Program): Iterable<Imp
             case "ImportNamespaceSpecifier":
               yield new ImportEntry(
                 specifier,
+                node,
                 moduleSpecifier,
                 "*",
                 specifier.local.name,
@@ -117,7 +120,8 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
               if (varDeclarator.id.type == "Identifier") {
                 // Easy case, `var foo = bar;`
                 yield {
-                  node: node,
+                  node: varDeclarator,
+                  declaration: node,
                   exportName: varDeclarator.id.name,
                   moduleRequest,
                   importName: null,
@@ -131,7 +135,8 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
                       filePath, prop);
                   }
                   yield {
-                    node: node,
+                    node: prop,
+                    declaration: node,
                     exportName: prop.value.name,
                     moduleRequest,
                     importName: null,
@@ -146,7 +151,8 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
           } else if (node.declaration.id) {
             // function or class declaration.
             yield {
-              node: node,
+              node: node.declaration,
+              declaration: node,
               exportName: node.declaration.id.name,
               moduleRequest,
               importName: null,
@@ -160,6 +166,7 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
             if (moduleRequest) {
               yield {
                 node: specifier,
+                declaration: node,
                 exportName: specifier.exported.name,
                 moduleRequest,
                 importName: specifier.local.name,
@@ -168,6 +175,7 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
             } else {
               yield {
                 node: specifier,
+                declaration: node,
                 exportName: specifier.exported.name,
                 moduleRequest,
                 importName: null,
@@ -182,6 +190,7 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
         // export default = ...;
         yield {
           node,
+          declaration: node,
           exportName: "default",
           moduleRequest: null,
           importName: null,
@@ -209,6 +218,7 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
 
         yield {
           node,
+          declaration: node,
           exportName: null,
           moduleRequest: node.source.value,
           importName: "*",
@@ -248,6 +258,7 @@ export function createParser(module: SourceTextModuleRecord, context: Rule.RuleC
               } else {
                 module.indirectExportEntries.push(new IndirectExportEntry(context.getFilename(), {
                   node: exportEntry.node,
+                  declaration: exportEntry.declaration,
                   moduleRequest: importEntry.moduleRequest,
                   importName: importEntry.importName,
                   localName: null,

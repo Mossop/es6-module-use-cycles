@@ -20,8 +20,10 @@ enum Status {
 
 export class ImportEntry {
   public constructor(
-    // The import declaration.
+    // The import specifier.
     public readonly node: ESTree.Node,
+    // The import declaration node.
+    public readonly declaration: ESTree.Node,
     // The module specifier.
     public readonly moduleRequest: string,
     // The name of the export, may be "*" or "default".
@@ -31,7 +33,7 @@ export class ImportEntry {
   ) {}
 }
 
-export function loggableImportEntry(entry: ImportEntry): Omit<ImportEntry, "node"> {
+export function loggableImportEntry(entry: ImportEntry): Omit<ImportEntry, "node" | "declaration"> {
   return {
     moduleRequest: entry.moduleRequest,
     importName: entry.importName,
@@ -41,13 +43,14 @@ export function loggableImportEntry(entry: ImportEntry): Omit<ImportEntry, "node
 
 export interface ExportEntry {
   readonly node: ESTree.Node;
+  readonly declaration: ESTree.Node;
   readonly exportName: string | null;
   readonly moduleRequest: string | null;
   readonly importName: string | null;
   readonly localName: string | null;
 }
 
-export function loggableExportEntry(entry: ExportEntry): Omit<ExportEntry, "node"> {
+export function loggableExportEntry(entry: ExportEntry): Omit<ExportEntry, "node" | "declaration"> {
   return {
     exportName: entry.exportName,
     moduleRequest: entry.moduleRequest,
@@ -59,6 +62,7 @@ export function loggableExportEntry(entry: ExportEntry): Omit<ExportEntry, "node
 export class LocalExportEntry implements ExportEntry {
   public readonly filePath: string;
   public readonly node: ESTree.Node;
+  public readonly declaration: ESTree.Node;
   public readonly exportName: string;
   public readonly moduleRequest: null = null;
   public readonly importName: null = null;
@@ -72,6 +76,7 @@ export class LocalExportEntry implements ExportEntry {
 
     this.filePath = filePath;
     this.node = entry.node;
+    this.declaration = entry.declaration;
     this.exportName = entry.exportName;
     this.localName = entry.localName;
   }
@@ -80,6 +85,7 @@ export class LocalExportEntry implements ExportEntry {
 export class IndirectExportEntry implements ExportEntry {
   public readonly filePath: string;
   public readonly node: ESTree.Node;
+  public readonly declaration: ESTree.Node;
   public readonly exportName: string;
   public readonly moduleRequest: string;
   public readonly importName: string;
@@ -93,6 +99,7 @@ export class IndirectExportEntry implements ExportEntry {
 
     this.filePath = filePath;
     this.node = entry.node;
+    this.declaration = entry.declaration;
     this.moduleRequest = entry.moduleRequest;
     this.exportName = entry.exportName;
     this.importName = entry.importName;
@@ -102,6 +109,7 @@ export class IndirectExportEntry implements ExportEntry {
 export class StarExportEntry implements ExportEntry {
   public readonly filePath: string;
   public readonly node: ESTree.Node;
+  public readonly declaration: ESTree.Node;
   public readonly exportName: null = null;
   public readonly moduleRequest: string;
   public readonly importName: "*" = "*";
@@ -115,6 +123,7 @@ export class StarExportEntry implements ExportEntry {
 
     this.filePath = filePath;
     this.node = entry.node;
+    this.declaration = entry.declaration;
     this.moduleRequest = entry.moduleRequest;
   }
 }
@@ -137,6 +146,7 @@ interface ExportBinding {
 interface RequestedModule {
   specifier: string;
   node: ESTree.Node;
+  declaration: ESTree.Node;
 }
 
 abstract class ModuleRecord {
@@ -285,6 +295,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
   public readonly indirectExportEntries: IndirectExportEntry[] = [];
   public readonly starExportEntries: StarExportEntry[] = [];
   private hasExecuted: boolean = false;
+  private importCycles: Set<ESTree.Node> = new Set();
 
   public constructor(
     host: ModuleHost,
@@ -324,8 +335,8 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     return namespace;
   }
 
-  private maybeReportImportCycle(stack: SourceTextModuleRecord[], requiredModule: SourceTextModuleRecord, node: ESTree.Node): void {
-    if (!stack.includes(requiredModule) || requiredModule.hasExecuted) {
+  private maybeReportImportCycle(stack: SourceTextModuleRecord[], requiredModule: SourceTextModuleRecord, requestedModule: RequestedModule): void {
+    if (!stack.includes(requiredModule) || requiredModule.hasExecuted || this.importCycles.has(requestedModule.declaration)) {
       return;
     }
 
@@ -339,7 +350,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     let lintMessage = buildLintMessage(
       IssueType.ImportCycle,
       `Import cycle: ${cycleStack.map((mod: SourceTextModuleRecord): string => mod.relativePath).join(" -> ")}`,
-      node,
+      requestedModule.declaration,
       1
     );
     this.host.addIssue({
@@ -349,6 +360,8 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       type: IssueType.ImportCycle,
       stack: cycleStack,
     });
+
+    this.importCycles.add(requestedModule.declaration);
   }
 
   protected innerModuleLinking(stack: SourceTextModuleRecord[], index: number): number {
@@ -485,7 +498,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
           required.node
         );
 
-        this.maybeReportImportCycle(executeStack, requiredModule, required.node);
+        this.maybeReportImportCycle(executeStack, requiredModule, required);
 
         if (typeof requiredModule.ancestorIndex != "number") {
           internalError("Expected ancestorIndex to have been set by now.", this.script, required.node);
@@ -545,6 +558,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       list.set(importEntry.moduleRequest, {
         specifier: importEntry.moduleRequest,
         node: importEntry.node,
+        declaration: importEntry.declaration,
       });
     }
 
@@ -552,6 +566,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       list.set(exportEntry.moduleRequest, {
         specifier: exportEntry.moduleRequest,
         node: exportEntry.node,
+        declaration: exportEntry.declaration,
       });
     }
 
@@ -559,6 +574,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       list.set(exportEntry.moduleRequest, {
         specifier: exportEntry.moduleRequest,
         node: exportEntry.node,
+        declaration: exportEntry.declaration,
       });
     }
 
