@@ -34,7 +34,7 @@ test("Parses extensions", async() => {
     "--ext", ".tsx,.jsx",
     "--ext", "fs,.gs",
     "--ext", ".ys,.ps,ws",
-    "--ext", "qs,.qs,qs,.qs",
+    "--ext", "qs,.qs,,,qs,.qs",
     "c",
   ];
 

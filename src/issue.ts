@@ -88,7 +88,7 @@ export interface EslintIssue extends BaseIssue {
   type: IssueType.EslintIssue;
 }
 
-export type Issue = EslintIssue | Assertion | InternalError | ImportError | ImportCycle;
+export type Issue = EslintIssue | Assertion | InternalError | ImportError | ExportError | ImportCycle;
 
 export function intoLintResult(issues: Issue[]): CLIEngine.LintResult[] {
   let results: CLIEngine.LintResult[] = [];

@@ -2,8 +2,9 @@ import { Rule } from "eslint";
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
 
-import { IssueError, IssueType, internalError, buildLintMessage, Severity } from "./issue";
-import { SourceTextModuleRecord, ImportEntry, LocalExportEntry, IndirectExportEntry, ExportEntry } from "./modulerecord";
+import { IssueError, IssueType, internalError, buildLintMessage, Severity, assert } from "./issue";
+import { SourceTextModuleRecord, ImportEntry, LocalExportEntry, IndirectExportEntry,
+  ExportEntry, StarExportEntry } from "./modulerecord";
 
 function* importEntries(filePath: string, program: ESTree.Program): Iterable<ImportEntry> {
   for (let node of program.body) {
@@ -61,6 +62,21 @@ function* importEntries(filePath: string, program: ESTree.Program): Iterable<Imp
   }
 }
 
+/**
+ *  These are the supported types of export declarations:
+ *
+ *     export `ExportFromClause` `FromClause`;
+ *         `ExportFromClause` =
+ *              *
+ *              * as `IdentifierName`
+ *              `NamesExports`
+ *     export `VariableStatement`;
+ *     export `NamedExports`;
+ *     export `Declaration`;
+ *     export default `HoistableDeclaration`;
+ *     export default `ClassDeclaration`;
+ *     export default `AssignmentExpression`
+ */
 function* exportEntries(filePath: string, program: ESTree.Program): Iterable<ExportEntry> {
   for (let node of program.body) {
     switch (node.type) {
@@ -79,40 +95,102 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
               severity: Severity.Error,
               filePath,
               lintMessage,
-              type: IssueType.ImportError,
+              type: IssueType.ExportError,
             });
           }
           moduleRequest = node.source.value;
         } else {
           moduleRequest = null;
         }
-        for (let specifier of node.specifiers) {
-          if (moduleRequest) {
-            yield new IndirectExportEntry(
-              specifier,
-              specifier.exported.name,
+
+        if (node.declaration) {
+          // This is the `export var foo = ...;` form.
+          assert(
+            node.specifiers.length == 0 && !moduleRequest,
+            "https://tc39.es/ecma262/#sec-exports-static-semantics-exportentries", "0",
+            filePath,
+            node
+          );
+
+          if (node.declaration.type == "VariableDeclaration") {
+            for (let varDeclarator of node.declaration.declarations) {
+              if (varDeclarator.id.type == "Identifier") {
+                // Easy case, `var foo = bar;`
+                yield {
+                  node: node,
+                  exportName: varDeclarator.id.name,
+                  moduleRequest,
+                  importName: null,
+                  localName: varDeclarator.id.name,
+                };
+              } else if (varDeclarator.id.type == "ObjectPattern") {
+                // Object destructuring, `var { a, b: c } = foo;
+                for (let prop of varDeclarator.id.properties) {
+                  if (prop.key.type != "Identifier" || prop.value.type != "Identifier") {
+                    internalError("Unsupported object pattern property type",
+                      filePath, prop);
+                  }
+                  yield {
+                    node: node,
+                    exportName: prop.value.name,
+                    moduleRequest,
+                    importName: null,
+                    localName: prop.key.name,
+                  };
+                }
+              } else {
+                internalError(`Unsupported variable declarator type ${varDeclarator.id.type}`,
+                  filePath, varDeclarator);
+              }
+            }
+          } else if (node.declaration.id) {
+            // function or class declaration.
+            yield {
+              node: node,
+              exportName: node.declaration.id.name,
               moduleRequest,
-              specifier.local.name,
-            );
-          } else {
-            yield new LocalExportEntry(
-              specifier,
-              specifier.exported.name,
-              specifier.local.name,
-            );
+              importName: null,
+              localName: node.declaration.id.name,
+            };
+          }
+
+        } else {
+          // { foo, bar as baz }
+          for (let specifier of node.specifiers) {
+            if (moduleRequest) {
+              yield {
+                node: specifier,
+                exportName: specifier.exported.name,
+                moduleRequest,
+                importName: specifier.local.name,
+                localName: null,
+              };
+            } else {
+              yield {
+                node: specifier,
+                exportName: specifier.exported.name,
+                moduleRequest,
+                importName: null,
+                localName: specifier.local.name,
+              };
+            }
           }
         }
         break;
       }
       case "ExportDefaultDeclaration": {
-        yield new LocalExportEntry(
+        // export default = ...;
+        yield {
           node,
-          "default",
-          "*default*",
-        );
+          exportName: "default",
+          moduleRequest: null,
+          importName: null,
+          localName: "*default*",
+        };
         break;
       }
       case "ExportAllDeclaration": {
+        // export * from ...;
         if (typeof node.source.value != "string") {
           let lintMessage = buildLintMessage(
             IssueType.ExportError,
@@ -129,19 +207,20 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
           });
         }
 
-        yield new IndirectExportEntry(
+        yield {
           node,
-          null,
-          node.source.value,
-          "*",
-        );
+          exportName: null,
+          moduleRequest: node.source.value,
+          importName: "*",
+          localName: null,
+        };
         break;
       }
     }
   }
 }
 
-export function createParser(record: SourceTextModuleRecord, context: Rule.RuleContext): Rule.RuleListener {
+export function createParser(module: SourceTextModuleRecord, context: Rule.RuleContext): Rule.RuleListener {
   return {
     "Program": (program: ESTree.Program): void => {
       try {
@@ -149,43 +228,45 @@ export function createParser(record: SourceTextModuleRecord, context: Rule.RuleC
 
         // Steps 4-6.
         for (let importEntry of importEntries(context.getFilename(), program)) {
-          record.importEntries.push(importEntry);
+          module.importEntries.push(importEntry);
         }
 
         // Steps 10-11.
         for (let exportEntry of exportEntries(context.getFilename(), program)) {
-          if (exportEntry instanceof LocalExportEntry) {
-            let importEntry = record.getImportEntry(exportEntry.localName);
+          if (exportEntry.moduleRequest == null) {
+            if (!exportEntry.localName) {
+              internalError("An export with no module specifier must have a local name.",
+                context.getFilename(), exportEntry.node);
+            }
 
+            let importEntry = module.getImportEntry(exportEntry.localName);
             if (!importEntry) {
-              record.localExportEntries.push(exportEntry);
+              module.localExportEntries.push(new LocalExportEntry(context.getFilename(), exportEntry));
             } else {
               if (importEntry.importName == "*") {
-                record.localExportEntries.push(exportEntry);
+                module.localExportEntries.push(new LocalExportEntry(context.getFilename(), exportEntry));
               } else {
-                record.indirectExportEntries.push(new IndirectExportEntry(
-                  exportEntry.node,
-                  exportEntry.exportName,
-                  importEntry.moduleRequest,
-                  importEntry.importName,
-                ));
+                module.indirectExportEntries.push(new IndirectExportEntry(context.getFilename(), {
+                  node: exportEntry.node,
+                  moduleRequest: importEntry.moduleRequest,
+                  importName: importEntry.importName,
+                  localName: null,
+                  exportName: exportEntry.exportName,
+                }));
               }
             }
           } else if (exportEntry.importName == "*" && exportEntry.exportName == null) {
-            record.starExportEntries.push(exportEntry);
+            module.starExportEntries.push(new StarExportEntry(context.getFilename(), exportEntry));
           } else {
-            record.indirectExportEntries.push(exportEntry);
+            module.indirectExportEntries.push(new IndirectExportEntry(context.getFilename(), exportEntry));
           }
         }
       } catch (exc) {
         if (exc instanceof IssueError) {
-          record.host.addIssue(exc.issue);
+          console.error(exc.message);
+          module.host.addIssue(exc.issue);
         } else {
-          record.host.addIssue(internalError(
-            `Parser threw an unexpected exception: ${exc}`,
-            context.getFilename(),
-            null,
-          ));
+          throw exc;
         }
       }
     }

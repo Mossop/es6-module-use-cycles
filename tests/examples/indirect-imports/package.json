@@ -1,0 +1,14 @@
+{
+  "name": "indirect-imports",
+  "version": "1.0.0",
+  "eslintConfig": {
+    "root": true,
+    "parserOptions": {
+      "ecmaVersion": 6,
+      "sourceType": "module"
+    },
+    "env": {
+      "es6": true
+    }
+  }
+}
