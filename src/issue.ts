@@ -136,21 +136,24 @@ export class IssueError extends Error {
 }
 
 export function assert(check: boolean, algorithm: string, part: string, filePath: string, node: ESTree.Node | null): void {
+  /* istanbul ignore else: We should be unable to trigger assertions in tests. */
   if (check) {
     return;
+  } else {
+    let lintMessage = buildLintMessage(IssueType.Assertion, `Assertion in ${algorithm} part ${part}`, node, Severity.Error);
+    let error: Assertion = {
+      severity: Severity.Error,
+      filePath,
+      lintMessage,
+      type: IssueType.Assertion,
+      algorithm,
+      part,
+    };
+    throw new IssueError(error);
   }
-  let lintMessage = buildLintMessage(IssueType.Assertion, `Assertion in ${algorithm} part ${part}`, node, Severity.Error);
-  let error: Assertion = {
-    severity: Severity.Error,
-    filePath,
-    lintMessage,
-    type: IssueType.Assertion,
-    algorithm,
-    part,
-  };
-  throw new IssueError(error);
 }
 
+/* istanbul ignore next: We should be unable to trigger internal errors in tests. */
 export function internalError(message: string, filePath: string, node: ESTree.Node | null): never {
   let lintMessage = buildLintMessage(IssueType.InternalError, message, node, Severity.Error);
   let error: InternalError = {
