@@ -6,12 +6,13 @@ import { Linter, Rule, CLIEngine } from "eslint";
 import * as ESTree from "estree";
 
 import { Issue, IssueType, IssueError, internalError, Severity, buildLintMessage } from "./issue";
-import { SourceTextModuleRecord, CyclicModuleRecord } from "./modulerecord";
+import { SourceTextModuleRecord, CyclicModuleRecord, ExternalModuleRecord } from "./modulerecord";
 import { createParser } from "./parser";
 
 export class ModuleHost {
   private readonly engine: CLIEngine;
   private moduleRecords: Map<string, SourceTextModuleRecord> = new Map();
+  private externalModules: Map<string, ExternalModuleRecord> = new Map();
   private issues: Issue[] = [];
 
   public constructor(
@@ -32,7 +33,7 @@ export class ModuleHost {
     this.issues.push(issue);
   }
 
-  private resolveModule(sourceScript: string, node: ESTree.Node, specifier: string): string {
+  public resolveModule(sourceScript: string, node: ESTree.Node, specifier: string): string {
     let basePath = path.resolve(path.dirname(sourceScript), specifier);
 
     try {
@@ -52,18 +53,28 @@ export class ModuleHost {
       }
     }
 
-    let lintMessage = buildLintMessage(IssueType.ImportError, `Unable to locate module for specifier ${specifier}.`, node, Severity.Error);
+    let lintMessage = buildLintMessage(IssueType.ImportError, `Unable to locate module for specifier '${specifier}'.`, node, Severity.Error);
     throw new IssueError({
       severity: Severity.Error,
       filePath: sourceScript,
       lintMessage,
       type: IssueType.ImportError,
+      specifier,
     });
   }
 
-  public resolveImportedModule(referencingScriptOrModule: CyclicModuleRecord | string, node: ESTree.Node, specifier: string): SourceTextModuleRecord {
+  public resolveImportedModule(referencingScriptOrModule: CyclicModuleRecord | string, node: ESTree.Node, specifier: string): CyclicModuleRecord {
     if (referencingScriptOrModule instanceof CyclicModuleRecord) {
       referencingScriptOrModule = referencingScriptOrModule.script;
+    }
+
+    if (!specifier.startsWith(".")) {
+      let module = this.externalModules.get(specifier);
+      if (!module) {
+        module = new ExternalModuleRecord(this.workingDirectory, this, specifier);
+        this.externalModules.set(specifier, module);
+      }
+      return module;
     }
 
     // Resolve a module to its target file.

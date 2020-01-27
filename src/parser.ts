@@ -23,6 +23,7 @@ function* importEntries(filePath: string, program: ESTree.Program): Iterable<Imp
             filePath,
             lintMessage,
             type: IssueType.ImportError,
+            specifier: String(node.source.value),
           });
         }
         let moduleSpecifier = node.source.value;
@@ -212,7 +213,7 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
             severity: Severity.Error,
             filePath,
             lintMessage,
-            type: IssueType.ImportError,
+            type: IssueType.ExportError,
           });
         }
 
@@ -238,6 +239,20 @@ export function createParser(module: SourceTextModuleRecord, context: Rule.RuleC
 
         // Steps 4-6.
         for (let importEntry of importEntries(context.getFilename(), program)) {
+          // Filter out any unknown modules.
+          if (importEntry.moduleRequest.startsWith(".")) {
+            try {
+              module.host.resolveModule(context.getFilename(), importEntry.declaration, importEntry.moduleRequest);
+            } catch (e) {
+              if (e instanceof IssueError) {
+                module.host.addIssue(e.issue);
+                continue;
+              }
+
+              throw e;
+            }
+          }
+
           module.importEntries.push(importEntry);
         }
 
@@ -266,10 +281,26 @@ export function createParser(module: SourceTextModuleRecord, context: Rule.RuleC
                 }));
               }
             }
-          } else if (exportEntry.importName == "*" && exportEntry.exportName == null) {
-            module.starExportEntries.push(new StarExportEntry(context.getFilename(), exportEntry));
           } else {
-            module.indirectExportEntries.push(new IndirectExportEntry(context.getFilename(), exportEntry));
+            // Filter out any unknown modules.
+            if (exportEntry.moduleRequest.startsWith(".")) {
+              try {
+                module.host.resolveModule(context.getFilename(), exportEntry.declaration, exportEntry.moduleRequest);
+              } catch (e) {
+                if (e instanceof IssueError) {
+                  module.host.addIssue(e.issue);
+                  continue;
+                }
+
+                throw e;
+              }
+            }
+
+            if (exportEntry.importName == "*" && exportEntry.exportName == null) {
+              module.starExportEntries.push(new StarExportEntry(context.getFilename(), exportEntry));
+            } else {
+              module.indirectExportEntries.push(new IndirectExportEntry(context.getFilename(), exportEntry));
+            }
           }
         }
       } catch (exc) {

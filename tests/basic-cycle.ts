@@ -2,7 +2,7 @@ import path from "path";
 
 import { ModuleHost } from "../src/host";
 import { IssueType, ImportCycle } from "../src/issue";
-import { SourceTextModuleRecord } from "../src/modulerecord";
+import { CyclicModuleRecord } from "../src/modulerecord";
 import { getExample } from "./helpers/utils";
 
 const example = getExample();
@@ -17,7 +17,7 @@ test("Cycles detected in basic-cycle.", () => {
 
   let cycle = issues[0] as ImportCycle;
   expect(cycle.stack).toHaveLength(3);
-  expect(cycle.stack.map((m: SourceTextModuleRecord) => m.relativePath)).toEqual([
+  expect(cycle.stack.map((m: CyclicModuleRecord) => m.relativePath)).toEqual([
     "entry.js",
     "module.js",
     "entry.js",

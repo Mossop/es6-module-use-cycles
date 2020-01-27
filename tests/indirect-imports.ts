@@ -2,7 +2,7 @@ import path from "path";
 
 import { ModuleHost } from "../src/host";
 import { ImportCycle, IssueType, intoLintResult, Severity } from "../src/issue";
-import { SourceTextModuleRecord } from "../src/modulerecord";
+import { CyclicModuleRecord } from "../src/modulerecord";
 import { getExample } from "./helpers/utils";
 
 const example = getExample();
@@ -26,7 +26,7 @@ test("Cycles detected in more complex import/export scenarios.", () => {
 
     expect(issue.type).toBe(IssueType.ImportCycle);
     expect(issue.stack).toHaveLength(expected.length);
-    expect(issue.stack.map((m: SourceTextModuleRecord) => m.relativePath)).toEqual(expected);
+    expect(issue.stack.map((m: CyclicModuleRecord) => m.relativePath)).toEqual(expected);
   }
 });
 

@@ -134,7 +134,7 @@ export interface ModuleNamespace {
 }
 
 interface ResolvedBinding {
-  module: SourceTextModuleRecord;
+  module: CyclicModuleRecord;
   bindingName: string;
 }
 
@@ -160,8 +160,6 @@ abstract class ModuleRecord {
 
   public abstract evaluate(): void;
 
-  public abstract getExportedNames(exportStarSet: SourceTextModuleRecord[] | undefined): string[];
-
   public abstract resolveExport(exportName: string, resolveSet?: ExportBinding[]): ResolvedBinding | "ambiguous" | null;
 
   public abstract getModuleNamespace(): ModuleNamespace;
@@ -172,47 +170,22 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
   public index: number | undefined = undefined;
   public ancestorIndex: number | undefined = undefined;
   public readonly relativePath: string;
+  public hasExecuted: boolean = false;
 
   public constructor(workingDirectory: string, host: ModuleHost, public readonly script: string) {
     super(host);
-    this.relativePath = path.relative(workingDirectory, script);
-  }
-
-  protected abstract namespaceCreate(names: string[]): ModuleNamespace;
-
-  public getModuleNamespace(): ModuleNamespace {
-    let algorithm = "https://tc39.es/ecma262/#sec-getmodulenamespace";
-
-    // Step 2.
-    assert(
-      this.status != Status.unlinked,
-      algorithm,
-      "2",
-      this.script,
-      null,
-    );
-
-    // Step 3.
-    let namespace = this.namespace;
-
-    //.Step 4.
-    if (!namespace) {
-      let exportedNames = this.getExportedNames([]);
-      let unambiguousNames: string[] = [];
-      for (let name of exportedNames) {
-        let resolution = this.resolveExport(name);
-        if (resolution && resolution != "ambiguous") {
-          unambiguousNames.push(name);
-        }
-      }
-
-      namespace = this.namespaceCreate(unambiguousNames);
+    if (script.startsWith("/")) {
+      this.relativePath = path.relative(workingDirectory, script);
+    } else {
+      this.relativePath = script;
     }
-
-    return namespace;
   }
 
-  protected abstract innerModuleLinking(stack: SourceTextModuleRecord[], index: number): number;
+  public abstract getModuleNamespace(): ModuleNamespace;
+
+  public abstract innerModuleLinking(stack: CyclicModuleRecord[], index: number): number;
+
+  public abstract getExportedNames(exportStarSet?: SourceTextModuleRecord[]): string[];
 
   public link(): void {
     let algorithm = "https://tc39.es/ecma262/#sec-moduledeclarationlinking";
@@ -239,7 +212,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
     );
   }
 
-  protected abstract innerModuleEvaluation(stack: CyclicModuleRecord[], executeStack: SourceTextModuleRecord[], index: number): number;
+  public abstract innerModuleEvaluation(stack: CyclicModuleRecord[], executeStack: SourceTextModuleRecord[], index: number): number;
 
   public evaluate(): void {
     let algorithm = "https://tc39.es/ecma262/#sec-moduleevaluation";
@@ -281,12 +254,6 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
       null,
     );
   }
-
-  public abstract getRequestedModules(): RequestedModule[];
-
-  protected abstract initializeEnvironment(): void;
-
-  protected abstract executeModule(): void;
 }
 
 export class SourceTextModuleRecord extends CyclicModuleRecord {
@@ -294,7 +261,6 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
   public readonly localExportEntries: LocalExportEntry[] = [];
   public readonly indirectExportEntries: IndirectExportEntry[] = [];
   public readonly starExportEntries: StarExportEntry[] = [];
-  private hasExecuted: boolean = false;
   private importCycles: Set<ESTree.Node> = new Set();
 
   public constructor(
@@ -335,7 +301,44 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     return namespace;
   }
 
-  private maybeReportImportCycle(stack: SourceTextModuleRecord[], requiredModule: SourceTextModuleRecord, requestedModule: RequestedModule): void {
+  public getModuleNamespace(): ModuleNamespace {
+    let algorithm = "https://tc39.es/ecma262/#sec-getmodulenamespace";
+
+    // Step 2.
+    assert(
+      this.status != Status.unlinked,
+      algorithm,
+      "2",
+      this.script,
+      null,
+    );
+
+    // Step 3.
+    let namespace = this.namespace;
+
+    //.Step 4.
+    if (!namespace) {
+      let exportedNames = this.getExportedNames([]);
+      let unambiguousNames: string[] = [];
+      for (let name of exportedNames) {
+        let resolution = this.resolveExport(name);
+        if (resolution && resolution != "ambiguous") {
+          unambiguousNames.push(name);
+        }
+      }
+
+      namespace = this.namespaceCreate(unambiguousNames);
+    }
+
+    return namespace;
+  }
+
+  private maybeReportImportCycle(stack: CyclicModuleRecord[], requiredModule: CyclicModuleRecord, requestedModule: RequestedModule): void {
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define
+    if (requiredModule instanceof ExternalModuleRecord) {
+      return;
+    }
+
     if (!stack.includes(requiredModule) || requiredModule.hasExecuted || this.importCycles.has(requestedModule.declaration)) {
       return;
     }
@@ -364,7 +367,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     this.importCycles.add(requestedModule.declaration);
   }
 
-  protected innerModuleLinking(stack: SourceTextModuleRecord[], index: number): number {
+  public innerModuleLinking(stack: CyclicModuleRecord[], index: number): number {
     let algorithm = "https://tc39.es/ecma262/#sec-InnerModuleLinking";
 
     // Step 2.
@@ -453,7 +456,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     return index;
   }
 
-  protected innerModuleEvaluation(stack: CyclicModuleRecord[], executeStack: SourceTextModuleRecord[], index: number): number {
+  public innerModuleEvaluation(stack: CyclicModuleRecord[], executeStack: SourceTextModuleRecord[], index: number): number {
     let algorithm = "https://tc39.es/ecma262/#sec-innermoduleevaluation";
 
     // Steps 2-4.
@@ -479,6 +482,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     // Step 10.
     for (let required of this.getRequestedModules()) {
       let requiredModule = this.host.resolveImportedModule(this, required.node, required.specifier);
+
       index = requiredModule.innerModuleEvaluation(stack, executeStack, index);
 
       assert(
@@ -610,6 +614,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     // Step 9
     for (let exp of this.starExportEntries) {
       let requestedModule = this.host.resolveImportedModule(this, exp.node, exp.moduleRequest);
+
       let starNames = requestedModule.getExportedNames(exportStarSet);
       for (let name of starNames) {
         if (name != "default" && !exportedNames.includes(name)) {
@@ -652,6 +657,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     for (let exportEntry of this.indirectExportEntries) {
       if (exportEntry.exportName == exportName) {
         let importedModule = this.host.resolveImportedModule(this, exportEntry.node, exportEntry.moduleRequest);
+
         if (exportEntry.importName == "*") {
           return {
             module: importedModule,
@@ -671,6 +677,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     let starResolution: ResolvedBinding | null = null;
     for (let exportEntry of this.starExportEntries) {
       let importedModule = this.host.resolveImportedModule(this, exportEntry.node, exportEntry.moduleRequest);
+
       let resolution = importedModule.resolveExport(exportName, resolveSet);
       if (resolution == "ambiguous") {
         return resolution;
@@ -729,6 +736,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     // Step 9.
     for (let importEntry of this.importEntries) {
       let importedModule = this.host.resolveImportedModule(this, importEntry.node, importEntry.moduleRequest);
+
       if (importEntry.importName == "*") {
         this.environmentRecord.createImmutableBinding(importEntry.localName, importedModule.getModuleNamespace());
       } else {
@@ -739,6 +747,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
             severity: Severity.Error,
             filePath: this.script,
             type: IssueType.ImportError,
+            specifier: importEntry.moduleRequest,
             lintMessage: buildLintMessage(
               IssueType.ImportError,
               `Import of ${importEntry.importName} could not be resolved by ${importedModule.relativePath}.`,
@@ -753,6 +762,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
             severity: Severity.Error,
             filePath: this.script,
             type: IssueType.ImportError,
+            specifier: importEntry.moduleRequest,
             lintMessage: buildLintMessage(
               IssueType.ImportError,
               `Import of ${importEntry.importName} resolves ambiguously.`,
@@ -775,3 +785,71 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     // Nothing
   }
 }
+
+export class ExternalModuleRecord extends CyclicModuleRecord {
+  public getExportedNames(_exportStarSet?: SourceTextModuleRecord[] | undefined): string[] {
+    return [];
+  }
+
+  public getModuleNamespace(): ModuleNamespace {
+    throw new Error("Method not implemented.");
+  }
+
+  public innerModuleLinking(_stack: SourceTextModuleRecord[], index: number): number {
+    // A vastly simplified version for this special case.
+    let algorithm = "https://tc39.es/ecma262/#sec-InnerModuleLinking";
+
+    if ([Status.linking, Status.linked, Status.evaluated].includes(this.status)) {
+      return index;
+    }
+
+    assert(
+      this.status == Status.unlinked,
+      algorithm,
+      "3",
+      this.script,
+      null
+    );
+
+    this.status = Status.linked;
+    this.index = index;
+    this.ancestorIndex = index;
+    index++;
+
+    return index;
+  }
+
+  public innerModuleEvaluation(_stack: SourceTextModuleRecord[], _executeStack: SourceTextModuleRecord[], index: number): number {
+    // A vastly simplified version for this special case.
+    let algorithm = "https://tc39.es/ecma262/#sec-innermoduleevaluation";
+
+    // Steps 2-4.
+    if ([Status.evaluated, Status.evaluating].includes(this.status)) {
+      return index;
+    }
+    assert(
+      this.status == Status.linked,
+      algorithm,
+      "4",
+      this.script,
+      null
+    );
+
+    // Steps 5-9.
+    this.status = Status.evaluated;
+    this.index = index;
+    this.ancestorIndex = index;
+    index++;
+
+    return index;
+  }
+
+  public resolveExport(exportName: string): ResolvedBinding | "ambiguous" | null {
+    return {
+      module: this,
+      bindingName: exportName,
+    };
+  }
+}
+
+export type ConcreteModule = SourceTextModuleRecord | ExternalModuleRecord;

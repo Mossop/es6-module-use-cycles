@@ -1,7 +1,7 @@
-import { SourceTextModuleRecord, ModuleNamespace } from "./modulerecord";
+import { ModuleNamespace, ConcreteModule } from "./modulerecord";
 
 interface ModuleBinding {
-  module: SourceTextModuleRecord;
+  module: ConcreteModule;
   bindingName: string;
 }
 
@@ -12,7 +12,7 @@ export class EnvironmentRecord {
     this.names.set(name, namespace);
   }
 
-  public createImportBinding(name: string, module: SourceTextModuleRecord, bindingName: string): void {
+  public createImportBinding(name: string, module: ConcreteModule, bindingName: string): void {
     this.names.set(name, {
       module,
       bindingName,

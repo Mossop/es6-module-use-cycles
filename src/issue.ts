@@ -2,7 +2,7 @@ import { Linter, CLIEngine } from "eslint";
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
 
-import { SourceTextModuleRecord } from "./modulerecord";
+import { CyclicModuleRecord } from "./modulerecord";
 
 export enum Severity {
   Warning = 1,
@@ -62,11 +62,12 @@ interface BaseIssue {
 
 export interface ImportCycle extends BaseIssue {
   type: IssueType.ImportCycle;
-  stack: SourceTextModuleRecord[];
+  stack: CyclicModuleRecord[];
 }
 
 export interface ImportError extends BaseIssue {
   type: IssueType.ImportError;
+  specifier: string;
 }
 
 export interface ExportError extends BaseIssue {
