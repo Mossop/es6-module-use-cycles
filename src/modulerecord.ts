@@ -863,6 +863,7 @@ export class ExternalModuleRecord extends CyclicModuleRecord {
 
     // Steps 5-9.
     this.status = Status.evaluated;
+    this.hasExecuted = true;
     this.index = index;
     this.ancestorIndex = index;
     index++;
