@@ -64,7 +64,7 @@ test("Lint results", () => {
     line: 1,
     column: 0,
     endLine: 1,
-    endColumn: 44,
+    endColumn: 43,
   }));
 
   expect(issues[3].lintMessage).toEqual(expect.objectContaining({

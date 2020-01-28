@@ -19,6 +19,8 @@ enum Status {
 }
 
 export class ImportEntry {
+  public executionUse: ESTree.Node | null = null;
+
   public constructor(
     // The import specifier.
     public readonly node: ESTree.Node,
@@ -33,11 +35,12 @@ export class ImportEntry {
   ) {}
 }
 
-export function loggableImportEntry(entry: ImportEntry): Omit<ImportEntry, "node" | "declaration"> {
+export function loggableImportEntry(entry: ImportEntry): Omit<ImportEntry, "node" | "declaration" | "executionUse"> & { usedInExecution: boolean } {
   return {
     moduleRequest: entry.moduleRequest,
     importName: entry.importName,
     localName: entry.localName,
+    usedInExecution: !!entry.executionUse,
   };
 }
 
@@ -782,7 +785,30 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
   }
 
   protected executeModule(): void {
-    // Nothing
+    for (let importEntry of this.importEntries) {
+      if (!importEntry.executionUse) {
+        // This import is not needed for execution so nothing more to do.
+        continue;
+      }
+
+      let importedModule = this.host.resolveImportedModule(this, importEntry.node, importEntry.moduleRequest);
+      if (!importedModule.hasExecuted) {
+        // The imported module has not been evaluated so use of this import will
+        // fail.
+        this.host.addIssue({
+          severity: Severity.Error,
+          filePath: this.script,
+          lintMessage: buildLintMessage(
+            IssueType.UseBeforeExecution,
+            `Import ${importEntry.localName} is used before the module it is imported from has been evaluated.`,
+            importEntry.executionUse,
+            Severity.Error
+          ),
+          type: IssueType.UseBeforeExecution,
+          importEntry,
+        });
+      }
+    }
   }
 }
 

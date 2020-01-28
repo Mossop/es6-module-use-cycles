@@ -2,7 +2,7 @@ import { Linter, CLIEngine } from "eslint";
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
 
-import { CyclicModuleRecord } from "./modulerecord";
+import { CyclicModuleRecord, ImportEntry } from "./modulerecord";
 
 export enum Severity {
   Warning = 1,
@@ -52,6 +52,7 @@ export enum IssueType {
   EslintIssue = "eslint",
   ImportError = "import-error",
   ExportError = "export-error",
+  UseBeforeExecution = "use-before-execution",
 }
 
 interface BaseIssue {
@@ -89,7 +90,12 @@ export interface EslintIssue extends BaseIssue {
   type: IssueType.EslintIssue;
 }
 
-export type Issue = EslintIssue | Assertion | InternalError | ImportError | ExportError | ImportCycle;
+export interface UseBeforeExecutionIssue extends BaseIssue {
+  type: IssueType.UseBeforeExecution;
+  importEntry: ImportEntry;
+}
+
+export type Issue = EslintIssue | Assertion | InternalError | ImportError | ExportError | ImportCycle | UseBeforeExecutionIssue;
 
 export function intoLintResult(issues: Issue[]): CLIEngine.LintResult[] {
   let results: CLIEngine.LintResult[] = [];

@@ -1,10 +1,16 @@
-import { Rule } from "eslint";
+import { Rule, Scope } from "eslint";
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
 
 import { IssueError, IssueType, internalError, buildLintMessage, Severity, assert } from "./issue";
 import { SourceTextModuleRecord, ImportEntry, LocalExportEntry, IndirectExportEntry,
   ExportEntry, StarExportEntry } from "./modulerecord";
+
+type Parented<T> = T & { parent: ESTree.Node };
+
+function isParented<T>(node: T): node is Parented<T> {
+  return "parent" in node;
+}
 
 function* importEntries(filePath: string, program: ESTree.Program): Iterable<ImportEntry> {
   for (let node of program.body) {
@@ -231,9 +237,51 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
   }
 }
 
+function isInGlobalPath(reference: Scope.Reference): boolean {
+  let scope: Scope.Scope | null = reference.from;
+  while (scope) {
+    if (scope.type == "class") {
+      return false;
+    }
+
+    if (scope.type == "function") {
+      return false;
+    }
+
+    if (scope.type == "module") {
+      return true;
+    }
+
+    scope = scope.upper;
+  }
+
+  return false;
+}
+
+/**
+ * Attempts to find a case where this import entry is used during a module's
+ * initial execution.
+ */
+function findImportUsage(context: Rule.RuleContext, importEntry: ImportEntry): void {
+  let variables = context.getDeclaredVariables(importEntry.declaration);
+  for (let variable of variables) {
+    for (let reference of variable.references) {
+      if (isParented(reference.identifier) && reference.identifier.parent.type == "ExportSpecifier") {
+        // Simply exporting the import does not count as usage.
+        continue;
+      }
+
+      if (isInGlobalPath(reference)) {
+        importEntry.executionUse = reference.identifier;
+      }
+    }
+  }
+
+}
+
 export function createParser(module: SourceTextModuleRecord, context: Rule.RuleContext): Rule.RuleListener {
   return {
-    "Program": (program: ESTree.Program): void => {
+    "Program": (program: Parented<ESTree.Program>): void => {
       try {
         // https://tc39.es/ecma262/#sec-parsemodule
 
@@ -254,6 +302,8 @@ export function createParser(module: SourceTextModuleRecord, context: Rule.RuleC
           }
 
           module.importEntries.push(importEntry);
+
+          findImportUsage(context, importEntry);
         }
 
         // Steps 10-11.
@@ -311,6 +361,6 @@ export function createParser(module: SourceTextModuleRecord, context: Rule.RuleC
           throw exc;
         }
       }
-    }
+    },
   };
 }
