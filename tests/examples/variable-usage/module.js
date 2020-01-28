@@ -1,3 +1,3 @@
 import { buildStore } from "./entry";
 
-export default {};
+export default buildStore();

@@ -237,14 +237,35 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
   }
 }
 
-function isInGlobalPath(reference: Scope.Reference): boolean {
-  let scope: Scope.Scope | null = reference.from;
+function isInGlobalPath(context: Rule.RuleContext, scope: Scope.Scope | null): boolean {
   while (scope) {
     if (scope.type == "class") {
+      console.log("Used in class");
       return false;
     }
 
     if (scope.type == "function") {
+      if (scope.block.type == "FunctionDeclaration") {
+        let id = scope.block.id;
+        if (!id) {
+          // Part of an `export default function...`, can't be in use.
+          return false;
+        }
+
+        // Get the variable for the function and see if it is ever called.
+        let variable = context.getDeclaredVariables(scope.block)[0];
+        for (let reference of variable.references) {
+          if (isParented(reference.identifier) && reference.identifier.parent.type == "CallExpression") {
+            if (isInGlobalPath(context, reference.from)) {
+              return true;
+            }
+          }
+        }
+
+        return false;
+      }
+
+      console.warn(`Used in unknown function block ${scope.block.type}.`);
       return false;
     }
 
@@ -271,7 +292,7 @@ function findImportUsage(context: Rule.RuleContext, importEntry: ImportEntry): v
         continue;
       }
 
-      if (isInGlobalPath(reference)) {
+      if (isInGlobalPath(context, reference.from)) {
         importEntry.executionUse = reference.identifier;
       }
     }
