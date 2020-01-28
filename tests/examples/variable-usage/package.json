@@ -1,5 +1,5 @@
 {
-  "name": "basic-cycle",
+  "name": "variable-usage",
   "version": "1.0.0",
   "eslintConfig": {
     "root": true,
