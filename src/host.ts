@@ -34,17 +34,17 @@ export class ModuleHost {
     this.issues.push(issue);
   }
 
-  public resolveModule(sourceScript: string, node: ESTree.Node, specifier: string): string {
+  public resolveModule(sourceModulePath: string, node: ESTree.Node, specifier: string): string {
     try {
       return resolve.sync(specifier, {
-        basedir: path.dirname(sourceScript),
+        basedir: path.dirname(sourceModulePath),
         extensions: this.moduleExtensions,
       });
     } catch (e) {
-      let lintMessage = buildLintMessage(IssueType.ImportError, `Unable to locate module for specifier '${specifier}' from ${sourceScript}.`, node, Severity.Error);
+      let lintMessage = buildLintMessage(IssueType.ImportError, `Unable to locate module for specifier '${specifier}' from ${sourceModulePath}.`, node, Severity.Error);
       throw new IssueError({
         severity: Severity.Error,
-        filePath: sourceScript,
+        modulePath: sourceModulePath,
         lintMessage,
         type: IssueType.ImportError,
         specifier,
@@ -52,11 +52,7 @@ export class ModuleHost {
     }
   }
 
-  public resolveImportedModule(referencingScriptOrModule: CyclicModuleRecord | string, node: ESTree.Node, specifier: string): CyclicModuleRecord {
-    if (referencingScriptOrModule instanceof CyclicModuleRecord) {
-      referencingScriptOrModule = referencingScriptOrModule.script;
-    }
-
+  public resolveImportedModule(referencingModule: CyclicModuleRecord, node: ESTree.Node, specifier: string): CyclicModuleRecord {
     if (!specifier.startsWith(".")) {
       let module = this.externalModules.get(specifier);
       if (!module) {
@@ -67,25 +63,25 @@ export class ModuleHost {
     }
 
     // Resolve a module to its target file.
-    let targetPath = this.resolveModule(referencingScriptOrModule, node, specifier);
+    let modulePath = this.resolveModule(referencingModule.modulePath, node, specifier);
 
-    let record = this.moduleRecords.get(targetPath);
-    if (record) {
-      return record;
+    let module = this.moduleRecords.get(modulePath);
+    if (module) {
+      return module;
     }
 
-    let sourceText = fs.readFileSync(targetPath, { encoding: "utf8" });
-    return this.parseModule(sourceText, targetPath);
+    let sourceText = fs.readFileSync(modulePath, { encoding: "utf8" });
+    return this.parseModule(sourceText, modulePath);
   }
 
-  public parseEntrypoint(entrypoint: string): SourceTextModuleRecord | null {
-    let sourceText = fs.readFileSync(entrypoint, { encoding: "utf8" });
-    return this.topLevelModuleEvaluation(sourceText, entrypoint);
+  public parseEntrypoint(modulePath: string): SourceTextModuleRecord | null {
+    let sourceText = fs.readFileSync(modulePath, { encoding: "utf8" });
+    return this.topLevelModuleEvaluation(sourceText, modulePath);
   }
 
-  public topLevelModuleEvaluation(sourceText: string, targetPath: string): SourceTextModuleRecord | null {
+  public topLevelModuleEvaluation(sourceText: string, modulePath: string): SourceTextModuleRecord | null {
     try {
-      let module = this.parseModule(sourceText, targetPath);
+      let module = this.parseModule(sourceText, modulePath);
       module.link();
       module.evaluate();
       return module;
@@ -99,8 +95,8 @@ export class ModuleHost {
     }
   }
 
-  public parseModule(sourceText: string, targetPath: string): SourceTextModuleRecord {
-    let config = this.engine.getConfigForFile(targetPath);
+  public parseModule(sourceText: string, modulePath: string): SourceTextModuleRecord {
+    let config = this.engine.getConfigForFile(modulePath);
     config.plugins = [];
     config.rules = {
       "module-parse": "error",
@@ -115,8 +111,8 @@ export class ModuleHost {
       create: (context: Rule.RuleContext): Rule.RuleListener => {
         return {
           Program: (node: ESTree.Program): void => {
-            module = new SourceTextModuleRecord(this, targetPath, node);
-            this.moduleRecords.set(targetPath, module);
+            module = new SourceTextModuleRecord(this, modulePath, node);
+            this.moduleRecords.set(modulePath, module);
 
             let parser = createParser(module, context);
             for (let [selector, callback] of Object.entries(parser)) {
@@ -145,7 +141,7 @@ export class ModuleHost {
     let cwd = process.cwd();
     process.chdir(this.workingDirectory);
     let lintMessages = linter.verify(sourceText, config, {
-      filename: path.relative(this.workingDirectory, targetPath),
+      filename: path.relative(this.workingDirectory, modulePath),
       allowInlineConfig: false,
     });
     process.chdir(cwd);
@@ -153,7 +149,7 @@ export class ModuleHost {
     for (let lintMessage of lintMessages) {
       this.addIssue({
         severity: lintMessage.severity,
-        filePath: targetPath,
+        modulePath,
         type: IssueType.EslintIssue,
         lintMessage,
       });
@@ -161,7 +157,7 @@ export class ModuleHost {
 
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (!module) {
-      internalError(`ModuleRecord was not created while parsing ${path.relative(this.workingDirectory, targetPath)}.`, targetPath, null);
+      internalError(`ModuleRecord was not created while parsing ${path.relative(this.workingDirectory, modulePath)}.`, modulePath, null);
     }
 
     return module;

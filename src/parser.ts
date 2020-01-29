@@ -12,7 +12,7 @@ function isParented<T>(node: T): node is Parented<T> {
   return "parent" in node;
 }
 
-function* importEntries(filePath: string, program: ESTree.Program): Iterable<ImportEntry> {
+function* importEntries(modulePath: string, program: ESTree.Program): Iterable<ImportEntry> {
   for (let node of program.body) {
     switch (node.type) {
       case "ImportDeclaration": {
@@ -26,7 +26,7 @@ function* importEntries(filePath: string, program: ESTree.Program): Iterable<Imp
 
           throw new IssueError({
             severity: Severity.Error,
-            filePath,
+            modulePath: modulePath,
             lintMessage,
             type: IssueType.ImportError,
             specifier: String(node.source.value),
@@ -87,7 +87,7 @@ function* importEntries(filePath: string, program: ESTree.Program): Iterable<Imp
  *     export default `ClassDeclaration`;
  *     export default `AssignmentExpression`
  */
-function* exportEntries(filePath: string, program: ESTree.Program): Iterable<ExportEntry> {
+function* exportEntries(modulePath: string, program: ESTree.Program): Iterable<ExportEntry> {
   for (let node of program.body) {
     switch (node.type) {
       case "ExportNamedDeclaration": {
@@ -103,7 +103,7 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
 
             throw new IssueError({
               severity: Severity.Error,
-              filePath,
+              modulePath: modulePath,
               lintMessage,
               type: IssueType.ExportError,
             });
@@ -118,7 +118,7 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
           assert(
             node.specifiers.length == 0 && !moduleRequest,
             "https://tc39.es/ecma262/#sec-exports-static-semantics-exportentries", "0",
-            filePath,
+            modulePath,
             node
           );
 
@@ -139,7 +139,7 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
                 for (let prop of varDeclarator.id.properties) {
                   if (prop.key.type != "Identifier" || prop.value.type != "Identifier") {
                     internalError("Unsupported object pattern property type",
-                      filePath, prop);
+                      modulePath, prop);
                   }
                   yield {
                     node: prop,
@@ -152,7 +152,7 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
                 }
               } else {
                 internalError(`Unsupported variable declarator type ${varDeclarator.id.type}`,
-                  filePath, varDeclarator);
+                  modulePath, varDeclarator);
               }
             }
           } else if (node.declaration.id) {
@@ -217,7 +217,7 @@ function* exportEntries(filePath: string, program: ESTree.Program): Iterable<Exp
 
           throw new IssueError({
             severity: Severity.Error,
-            filePath,
+            modulePath: modulePath,
             lintMessage,
             type: IssueType.ExportError,
           });
@@ -303,15 +303,17 @@ function findImportUsage(context: Rule.RuleContext, importEntry: ImportEntry): v
 export function createParser(module: SourceTextModuleRecord, context: Rule.RuleContext): Rule.RuleListener {
   return {
     "Program": (program: Parented<ESTree.Program>): void => {
+      let modulePath = context.getFilename();
+
       try {
         // https://tc39.es/ecma262/#sec-parsemodule
 
         // Steps 4-6.
-        for (let importEntry of importEntries(context.getFilename(), program)) {
+        for (let importEntry of importEntries(modulePath, program)) {
           // Filter out any unknown modules.
           if (importEntry.moduleRequest.startsWith(".")) {
             try {
-              module.host.resolveModule(context.getFilename(), importEntry.declaration, importEntry.moduleRequest);
+              module.host.resolveModule(modulePath, importEntry.declaration, importEntry.moduleRequest);
             } catch (e) {
               if (e instanceof IssueError) {
                 module.host.addIssue(e.issue);
@@ -328,21 +330,21 @@ export function createParser(module: SourceTextModuleRecord, context: Rule.RuleC
         }
 
         // Steps 10-11.
-        for (let exportEntry of exportEntries(context.getFilename(), program)) {
+        for (let exportEntry of exportEntries(modulePath, program)) {
           if (exportEntry.moduleRequest == null) {
             if (!exportEntry.localName) {
               internalError("An export with no module specifier must have a local name.",
-                context.getFilename(), exportEntry.node);
+                modulePath, exportEntry.node);
             }
 
             let importEntry = module.getImportEntry(exportEntry.localName);
             if (!importEntry) {
-              module.localExportEntries.push(new LocalExportEntry(context.getFilename(), exportEntry));
+              module.localExportEntries.push(new LocalExportEntry(modulePath, exportEntry));
             } else {
               if (importEntry.importName == "*") {
-                module.localExportEntries.push(new LocalExportEntry(context.getFilename(), exportEntry));
+                module.localExportEntries.push(new LocalExportEntry(modulePath, exportEntry));
               } else {
-                module.indirectExportEntries.push(new IndirectExportEntry(context.getFilename(), {
+                module.indirectExportEntries.push(new IndirectExportEntry(modulePath, {
                   node: exportEntry.node,
                   declaration: exportEntry.declaration,
                   moduleRequest: importEntry.moduleRequest,
@@ -356,7 +358,7 @@ export function createParser(module: SourceTextModuleRecord, context: Rule.RuleC
             // Filter out any unknown modules.
             if (exportEntry.moduleRequest.startsWith(".")) {
               try {
-                module.host.resolveModule(context.getFilename(), exportEntry.declaration, exportEntry.moduleRequest);
+                module.host.resolveModule(modulePath, exportEntry.declaration, exportEntry.moduleRequest);
               } catch (e) {
                 if (e instanceof IssueError) {
                   module.host.addIssue(e.issue);
@@ -368,9 +370,9 @@ export function createParser(module: SourceTextModuleRecord, context: Rule.RuleC
             }
 
             if (exportEntry.importName == "*" && exportEntry.exportName == null) {
-              module.starExportEntries.push(new StarExportEntry(context.getFilename(), exportEntry));
+              module.starExportEntries.push(new StarExportEntry(modulePath, exportEntry));
             } else {
-              module.indirectExportEntries.push(new IndirectExportEntry(context.getFilename(), exportEntry));
+              module.indirectExportEntries.push(new IndirectExportEntry(modulePath, exportEntry));
             }
           }
         }

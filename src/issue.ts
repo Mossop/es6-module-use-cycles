@@ -57,7 +57,7 @@ export enum IssueType {
 
 interface BaseIssue {
   severity: Severity;
-  filePath: string;
+  modulePath: string;
   lintMessage: Linter.LintMessage;
 }
 
@@ -108,7 +108,7 @@ export function intoLintResult(issues: Issue[]): CLIEngine.LintResult[] {
 
   const buildInitialLintResult = (issue: Issue): CLIEngine.LintResult => {
     return {
-      filePath: issue.filePath,
+      filePath: issue.modulePath,
       messages: [issue.lintMessage],
       errorCount: issue.lintMessage.severity == 2 ? 1 : 0,
       warningCount: issue.lintMessage.severity == 2 ? 0 : 1,
@@ -119,7 +119,7 @@ export function intoLintResult(issues: Issue[]): CLIEngine.LintResult[] {
 
   let currentResult = buildInitialLintResult(issue);
   for (issue of issues) {
-    if (issue.filePath != currentResult.filePath) {
+    if (issue.modulePath != currentResult.filePath) {
       results.push(currentResult);
       currentResult = buildInitialLintResult(issue);
     } else {
@@ -142,7 +142,7 @@ export class IssueError extends Error {
   }
 }
 
-export function assert(check: boolean, algorithm: string, part: string, filePath: string, node: ESTree.Node | null): void {
+export function assert(check: boolean, algorithm: string, part: string, modulePath: string, node: ESTree.Node | null): void {
   /* istanbul ignore else: We should be unable to trigger assertions in tests. */
   if (check) {
     return;
@@ -150,7 +150,7 @@ export function assert(check: boolean, algorithm: string, part: string, filePath
     let lintMessage = buildLintMessage(IssueType.Assertion, `Assertion in ${algorithm} part ${part}`, node, Severity.Error);
     let error: Assertion = {
       severity: Severity.Error,
-      filePath,
+      modulePath: modulePath,
       lintMessage,
       type: IssueType.Assertion,
       algorithm,
@@ -161,11 +161,11 @@ export function assert(check: boolean, algorithm: string, part: string, filePath
 }
 
 /* istanbul ignore next: We should be unable to trigger internal errors in tests. */
-export function internalError(message: string, filePath: string, node: ESTree.Node | null): never {
+export function internalError(message: string, modulePath: string, node: ESTree.Node | null): never {
   let lintMessage = buildLintMessage(IssueType.InternalError, message, node, Severity.Error);
   let error: InternalError = {
     severity: Severity.Error,
-    filePath,
+    modulePath: modulePath,
     lintMessage,
     type: IssueType.InternalError,
     message,

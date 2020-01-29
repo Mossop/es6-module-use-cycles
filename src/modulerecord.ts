@@ -63,7 +63,7 @@ export function loggableExportEntry(entry: ExportEntry): Omit<ExportEntry, "node
 }
 
 export class LocalExportEntry implements ExportEntry {
-  public readonly filePath: string;
+  public readonly modulePath: string;
   public readonly node: ESTree.Node;
   public readonly declaration: ESTree.Node;
   public readonly exportName: string;
@@ -71,13 +71,13 @@ export class LocalExportEntry implements ExportEntry {
   public readonly importName: null = null;
   public readonly localName: string;
 
-  public constructor(filePath: string, entry: ExportEntry) {
+  public constructor(modulePath: string, entry: ExportEntry) {
     if (entry.moduleRequest || entry.importName || !entry.exportName || !entry.localName) {
       internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(loggableExportEntry(entry))}) as a LocalExportEntry.`,
-        filePath, entry.node);
+        modulePath, entry.node);
     }
 
-    this.filePath = filePath;
+    this.modulePath = modulePath;
     this.node = entry.node;
     this.declaration = entry.declaration;
     this.exportName = entry.exportName;
@@ -86,7 +86,7 @@ export class LocalExportEntry implements ExportEntry {
 }
 
 export class IndirectExportEntry implements ExportEntry {
-  public readonly filePath: string;
+  public readonly modulePath: string;
   public readonly node: ESTree.Node;
   public readonly declaration: ESTree.Node;
   public readonly exportName: string;
@@ -94,13 +94,13 @@ export class IndirectExportEntry implements ExportEntry {
   public readonly importName: string;
   public readonly localName: null = null;
 
-  public constructor(filePath: string, entry: ExportEntry) {
+  public constructor(modulePath: string, entry: ExportEntry) {
     if (!entry.moduleRequest || !entry.importName || !entry.exportName || entry.localName) {
       internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(loggableExportEntry(entry))}) as a IndirectExportEntry.`,
-        filePath, entry.node);
+        modulePath, entry.node);
     }
 
-    this.filePath = filePath;
+    this.modulePath = modulePath;
     this.node = entry.node;
     this.declaration = entry.declaration;
     this.moduleRequest = entry.moduleRequest;
@@ -110,7 +110,7 @@ export class IndirectExportEntry implements ExportEntry {
 }
 
 export class StarExportEntry implements ExportEntry {
-  public readonly filePath: string;
+  public readonly modulePath: string;
   public readonly node: ESTree.Node;
   public readonly declaration: ESTree.Node;
   public readonly exportName: null = null;
@@ -118,13 +118,13 @@ export class StarExportEntry implements ExportEntry {
   public readonly importName: "*" = "*";
   public readonly localName: null = null;
 
-  public constructor(filePath: string, entry: ExportEntry) {
+  public constructor(modulePath: string, entry: ExportEntry) {
     if (!entry.moduleRequest || entry.importName != "*" || entry.exportName || entry.localName) {
       internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(loggableExportEntry(entry))}) as a StarExportEntry.`,
-        filePath, entry.node);
+        modulePath, entry.node);
     }
 
-    this.filePath = filePath;
+    this.modulePath = modulePath;
     this.node = entry.node;
     this.declaration = entry.declaration;
     this.moduleRequest = entry.moduleRequest;
@@ -175,12 +175,12 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
   public readonly relativePath: string;
   public hasExecuted: boolean = false;
 
-  public constructor(workingDirectory: string, host: ModuleHost, public readonly script: string) {
+  public constructor(workingDirectory: string, host: ModuleHost, public readonly modulePath: string) {
     super(host);
-    if (script.startsWith("/")) {
-      this.relativePath = path.relative(workingDirectory, script);
+    if (modulePath.startsWith("/")) {
+      this.relativePath = path.relative(workingDirectory, modulePath);
     } else {
-      this.relativePath = script;
+      this.relativePath = modulePath;
     }
   }
 
@@ -198,7 +198,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
       ![Status.linking, Status.evaluating].includes(this.status),
       algorithm,
       "2",
-      this.script,
+      this.modulePath,
       null
     );
 
@@ -210,7 +210,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
       [Status.linked, Status.evaluated].includes(this.status),
       algorithm,
       "6",
-      this.script,
+      this.modulePath,
       null
     );
   }
@@ -225,7 +225,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
       [Status.linked, Status.evaluated].includes(this.status),
       algorithm,
       "2",
-      this.script,
+      this.modulePath,
       null,
     );
 
@@ -239,21 +239,21 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
       this.status == Status.evaluated,
       algorithm,
       "6",
-      this.script,
+      this.modulePath,
       null,
     );
     assert(
       stack.length == 0,
       algorithm,
       "7",
-      this.script,
+      this.modulePath,
       null,
     );
     assert(
       executeStack.length == 0,
       algorithm,
       "7.x.1",
-      this.script,
+      this.modulePath,
       null,
     );
   }
@@ -268,10 +268,10 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
   public constructor(
     host: ModuleHost,
-    script: string,
+    modulePath: string,
     public readonly node: ESTree.Program
   ) {
-    super(host.workingDirectory, host, script);
+    super(host.workingDirectory, host, modulePath);
   }
 
   protected namespaceCreate(names: string[]): ModuleNamespace {
@@ -282,7 +282,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       !this.namespace,
       algorithm,
       "2",
-      this.script,
+      this.modulePath,
       null,
     );
 
@@ -312,7 +312,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       this.status != Status.unlinked,
       algorithm,
       "2",
-      this.script,
+      this.modulePath,
       null,
     );
 
@@ -361,7 +361,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     );
     this.host.addIssue({
       severity: Severity.Warning,
-      filePath: this.script,
+      modulePath: this.modulePath,
       lintMessage,
       type: IssueType.ImportCycle,
       stack: cycleStack,
@@ -383,7 +383,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       this.status == Status.unlinked,
       algorithm,
       "3",
-      this.script,
+      this.modulePath,
       null
     );
 
@@ -404,7 +404,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
         [Status.linking, Status.linked, Status.evaluated].includes(requiredModule.status),
         algorithm,
         "9.c.i",
-        this.script,
+        this.modulePath,
         required.node,
       );
 
@@ -413,12 +413,12 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
           stack.includes(requiredModule),
           algorithm,
           "9.c.ii",
-          this.script,
+          this.modulePath,
           required.node
         );
 
         if (typeof requiredModule.ancestorIndex != "number") {
-          internalError("Expected ancestorIndex to have been set by now.", this.script, required.node);
+          internalError("Expected ancestorIndex to have been set by now.", this.modulePath, required.node);
         }
 
         this.ancestorIndex = Math.min(this.ancestorIndex, requiredModule.ancestorIndex);
@@ -433,14 +433,14 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       stack.filter((mod: CyclicModuleRecord) => mod === this).length == 1,
       algorithm,
       "11",
-      this.script,
+      this.modulePath,
       null,
     );
     assert(
       this.ancestorIndex <= this.index,
       algorithm,
       "12",
-      this.script,
+      this.modulePath,
       null,
     );
 
@@ -470,7 +470,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       this.status == Status.linked,
       algorithm,
       "4",
-      this.script,
+      this.modulePath,
       null
     );
 
@@ -492,7 +492,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
         [Status.evaluating, Status.evaluated].includes(requiredModule.status),
         algorithm,
         "10.d.i",
-        this.script,
+        this.modulePath,
         required.node,
       );
 
@@ -501,14 +501,14 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
           stack.includes(requiredModule),
           algorithm,
           "10.d.ii",
-          this.script,
+          this.modulePath,
           required.node
         );
 
         this.maybeReportImportCycle(executeStack, requiredModule, required);
 
         if (typeof requiredModule.ancestorIndex != "number") {
-          internalError("Expected ancestorIndex to have been set by now.", this.script, required.node);
+          internalError("Expected ancestorIndex to have been set by now.", this.modulePath, required.node);
         }
 
         this.ancestorIndex = Math.min(this.ancestorIndex, requiredModule.ancestorIndex);
@@ -521,7 +521,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       executeStack.length > 0 && executeStack[executeStack.length - 1] == this,
       algorithm,
       "11.x.1",
-      this.script,
+      this.modulePath,
       null,
     );
     executeStack.pop();
@@ -532,14 +532,14 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       stack.filter((mod: CyclicModuleRecord) => mod === this).length == 1,
       algorithm,
       "12",
-      this.script,
+      this.modulePath,
       null,
     );
     assert(
       this.ancestorIndex <= this.index,
       algorithm,
       "13",
-      this.script,
+      this.modulePath,
       null,
     );
 
@@ -707,7 +707,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       if (!resolution) {
         throw new IssueError({
           severity: Severity.Error,
-          filePath: this.script,
+          modulePath: this.modulePath,
           type: IssueType.ExportError,
           lintMessage: buildLintMessage(
             IssueType.ExportError,
@@ -721,7 +721,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       if (resolution == "ambiguous") {
         throw new IssueError({
           severity: Severity.Error,
-          filePath: this.script,
+          modulePath: this.modulePath,
           type: IssueType.ExportError,
           lintMessage: buildLintMessage(
             IssueType.ExportError,
@@ -748,7 +748,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
         if (!resolution) {
           throw new IssueError({
             severity: Severity.Error,
-            filePath: this.script,
+            modulePath: this.modulePath,
             type: IssueType.ImportError,
             specifier: importEntry.moduleRequest,
             lintMessage: buildLintMessage(
@@ -763,7 +763,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
         if (resolution == "ambiguous") {
           throw new IssueError({
             severity: Severity.Error,
-            filePath: this.script,
+            modulePath: this.modulePath,
             type: IssueType.ImportError,
             specifier: importEntry.moduleRequest,
             lintMessage: buildLintMessage(
@@ -797,7 +797,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
         // fail.
         this.host.addIssue({
           severity: Severity.Error,
-          filePath: this.script,
+          modulePath: this.modulePath,
           lintMessage: buildLintMessage(
             IssueType.UseBeforeExecution,
             `Import ${importEntry.localName} is used before the module it is imported from has been evaluated.`,
@@ -833,7 +833,7 @@ export class ExternalModuleRecord extends CyclicModuleRecord {
       this.status == Status.unlinked,
       algorithm,
       "3",
-      this.script,
+      this.modulePath,
       null
     );
 
@@ -857,7 +857,7 @@ export class ExternalModuleRecord extends CyclicModuleRecord {
       this.status == Status.linked,
       algorithm,
       "4",
-      this.script,
+      this.modulePath,
       null
     );
 
