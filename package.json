@@ -2,11 +2,14 @@
   "name": "es6-module-use-cycles",
   "version": "1.0.0",
   "description": "Detects problematic cycles across ES6 modules.",
-  "main": "bin/index.js",
+  "main": "bin/host.js",
+  "bin": {
+    "cycles": "./bin/cycles.js"
+  },
   "scripts": {
     "build": "tsc -p ./tsconfig.build.json",
     "prestart": "tsc -p ./tsconfig.build.json",
-    "start": "node -r source-map-support/register bin/index.js",
+    "start": "node -r source-map-support/register bin/cycles.js",
     "lint": "eslint --ext .ts,.js .",
     "test": "jest"
   },
