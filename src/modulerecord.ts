@@ -5,7 +5,7 @@ import * as ESTree from "estree";
 
 import { EnvironmentRecord } from "./environment";
 import { ModuleHost } from "./host";
-import { assert, internalError, IssueType, Severity, buildLintMessage, IssueError } from "./issue";
+import { assert, internalError, IssueType, Issue } from "./issue";
 
 // This is all mostly based on the ES spec: https://tc39.es/ecma262/#sec-modules
 // Plus some additions for better reporting.
@@ -63,7 +63,6 @@ export function loggableExportEntry(entry: ExportEntry): Omit<ExportEntry, "node
 }
 
 export class LocalExportEntry implements ExportEntry {
-  public readonly modulePath: string;
   public readonly node: ESTree.Node;
   public readonly declaration: ESTree.Node;
   public readonly exportName: string;
@@ -71,13 +70,12 @@ export class LocalExportEntry implements ExportEntry {
   public readonly importName: null = null;
   public readonly localName: string;
 
-  public constructor(modulePath: string, entry: ExportEntry) {
+  public constructor(public readonly module: CyclicModuleRecord, entry: ExportEntry) {
     if (entry.moduleRequest || entry.importName || !entry.exportName || !entry.localName) {
-      internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(loggableExportEntry(entry))}) as a LocalExportEntry.`,
-        modulePath, entry.node);
+      internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(loggableExportEntry(entry))}) as a LocalExportEntry.`);
     }
 
-    this.modulePath = modulePath;
+    this.module = module;
     this.node = entry.node;
     this.declaration = entry.declaration;
     this.exportName = entry.exportName;
@@ -86,7 +84,6 @@ export class LocalExportEntry implements ExportEntry {
 }
 
 export class IndirectExportEntry implements ExportEntry {
-  public readonly modulePath: string;
   public readonly node: ESTree.Node;
   public readonly declaration: ESTree.Node;
   public readonly exportName: string;
@@ -94,13 +91,11 @@ export class IndirectExportEntry implements ExportEntry {
   public readonly importName: string;
   public readonly localName: null = null;
 
-  public constructor(modulePath: string, entry: ExportEntry) {
+  public constructor(public readonly module: CyclicModuleRecord, entry: ExportEntry) {
     if (!entry.moduleRequest || !entry.importName || !entry.exportName || entry.localName) {
-      internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(loggableExportEntry(entry))}) as a IndirectExportEntry.`,
-        modulePath, entry.node);
+      internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(loggableExportEntry(entry))}) as a IndirectExportEntry.`);
     }
 
-    this.modulePath = modulePath;
     this.node = entry.node;
     this.declaration = entry.declaration;
     this.moduleRequest = entry.moduleRequest;
@@ -110,7 +105,6 @@ export class IndirectExportEntry implements ExportEntry {
 }
 
 export class StarExportEntry implements ExportEntry {
-  public readonly modulePath: string;
   public readonly node: ESTree.Node;
   public readonly declaration: ESTree.Node;
   public readonly exportName: null = null;
@@ -118,13 +112,11 @@ export class StarExportEntry implements ExportEntry {
   public readonly importName: "*" = "*";
   public readonly localName: null = null;
 
-  public constructor(modulePath: string, entry: ExportEntry) {
+  public constructor(public readonly module: CyclicModuleRecord, entry: ExportEntry) {
     if (!entry.moduleRequest || entry.importName != "*" || entry.exportName || entry.localName) {
-      internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(loggableExportEntry(entry))}) as a StarExportEntry.`,
-        modulePath, entry.node);
+      internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(loggableExportEntry(entry))}) as a StarExportEntry.`);
     }
 
-    this.modulePath = modulePath;
     this.node = entry.node;
     this.declaration = entry.declaration;
     this.moduleRequest = entry.moduleRequest;
@@ -174,6 +166,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
   public ancestorIndex: number | undefined = undefined;
   public readonly relativePath: string;
   public hasExecuted: boolean = false;
+  private issues: Issue[] = [];
 
   public constructor(workingDirectory: string, host: ModuleHost, public readonly modulePath: string) {
     super(host);
@@ -184,11 +177,27 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
     }
   }
 
+  public resolveModule(specifier: string): string {
+    return this.host.resolveModule(this, specifier);
+  }
+
   public abstract getModuleNamespace(): ModuleNamespace;
 
   public abstract innerModuleLinking(stack: CyclicModuleRecord[], index: number): number;
 
   public abstract getExportedNames(exportStarSet?: SourceTextModuleRecord[]): string[];
+
+  public addIssue(issue: Issue): void {
+    if (issue.module != this) {
+      internalError("Attempt to add an issue to the wrong module.");
+    }
+
+    this.issues.push(issue);
+  }
+
+  public getIssues(): Issue[] {
+    return [...this.issues];
+  }
 
   public link(): void {
     let algorithm = "https://tc39.es/ecma262/#sec-moduledeclarationlinking";
@@ -198,8 +207,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
       ![Status.linking, Status.evaluating].includes(this.status),
       algorithm,
       "2",
-      this.modulePath,
-      null
+      this,
     );
 
     // Steps 3-4.
@@ -210,8 +218,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
       [Status.linked, Status.evaluated].includes(this.status),
       algorithm,
       "6",
-      this.modulePath,
-      null
+      this,
     );
   }
 
@@ -225,8 +232,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
       [Status.linked, Status.evaluated].includes(this.status),
       algorithm,
       "2",
-      this.modulePath,
-      null,
+      this,
     );
 
     // Steps 3-4.
@@ -239,22 +245,19 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
       this.status == Status.evaluated,
       algorithm,
       "6",
-      this.modulePath,
-      null,
+      this,
     );
     assert(
       stack.length == 0,
       algorithm,
       "7",
-      this.modulePath,
-      null,
+      this,
     );
     assert(
       executeStack.length == 0,
       algorithm,
       "7.x.1",
-      this.modulePath,
-      null,
+      this,
     );
   }
 }
@@ -268,8 +271,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
   public constructor(
     host: ModuleHost,
-    modulePath: string,
-    public readonly node: ESTree.Program
+    modulePath: string
   ) {
     super(host.workingDirectory, host, modulePath);
   }
@@ -282,8 +284,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       !this.namespace,
       algorithm,
       "2",
-      this.modulePath,
-      null,
+      this,
     );
 
     // Slightly out of order here as we can't create the namespace with empty
@@ -312,8 +313,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       this.status != Status.unlinked,
       algorithm,
       "2",
-      this.modulePath,
-      null,
+      this,
     );
 
     // Step 3.
@@ -353,18 +353,12 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       cycleStack.shift();
     }
 
-    let lintMessage = buildLintMessage(
-      IssueType.ImportCycle,
-      `Import cycle: ${cycleStack.map((mod: SourceTextModuleRecord): string => mod.relativePath).join(" -> ")}`,
-      requestedModule.declaration,
-      1
-    );
-    this.host.addIssue({
-      severity: Severity.Warning,
-      modulePath: this.modulePath,
-      lintMessage,
+    this.addIssue({
+      module: this,
+      message: `Import cycle: ${cycleStack.map((mod: SourceTextModuleRecord): string => mod.relativePath).join(" -> ")}`,
       type: IssueType.ImportCycle,
       stack: cycleStack,
+      node: requestedModule.declaration,
     });
 
     this.importCycles.add(requestedModule.declaration);
@@ -383,8 +377,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       this.status == Status.unlinked,
       algorithm,
       "3",
-      this.modulePath,
-      null
+      this
     );
 
     // Steps 4-8.
@@ -396,7 +389,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
     // Step 9.
     for (let required of this.getRequestedModules()) {
-      let requiredModule = this.host.resolveImportedModule(this, required.node, required.specifier);
+      let requiredModule = this.host.resolveImportedModule(this, required.specifier);
 
       index = requiredModule.innerModuleLinking(stack, index);
 
@@ -404,8 +397,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
         [Status.linking, Status.linked, Status.evaluated].includes(requiredModule.status),
         algorithm,
         "9.c.i",
-        this.modulePath,
-        required.node,
+        this
       );
 
       if (requiredModule.status == Status.linking) {
@@ -413,12 +405,11 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
           stack.includes(requiredModule),
           algorithm,
           "9.c.ii",
-          this.modulePath,
-          required.node
+          this
         );
 
         if (typeof requiredModule.ancestorIndex != "number") {
-          internalError("Expected ancestorIndex to have been set by now.", this.modulePath, required.node);
+          internalError("Expected ancestorIndex to have been set by now.");
         }
 
         this.ancestorIndex = Math.min(this.ancestorIndex, requiredModule.ancestorIndex);
@@ -433,15 +424,13 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       stack.filter((mod: CyclicModuleRecord) => mod === this).length == 1,
       algorithm,
       "11",
-      this.modulePath,
-      null,
+      this
     );
     assert(
       this.ancestorIndex <= this.index,
       algorithm,
       "12",
-      this.modulePath,
-      null,
+      this
     );
 
     // Step 13.
@@ -470,8 +459,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       this.status == Status.linked,
       algorithm,
       "4",
-      this.modulePath,
-      null
+      this
     );
 
     // Steps 5-9.
@@ -484,7 +472,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
     // Step 10.
     for (let required of this.getRequestedModules()) {
-      let requiredModule = this.host.resolveImportedModule(this, required.node, required.specifier);
+      let requiredModule = this.host.resolveImportedModule(this, required.specifier);
 
       index = requiredModule.innerModuleEvaluation(stack, executeStack, index);
 
@@ -492,8 +480,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
         [Status.evaluating, Status.evaluated].includes(requiredModule.status),
         algorithm,
         "10.d.i",
-        this.modulePath,
-        required.node,
+        this
       );
 
       if (requiredModule.status == Status.evaluating) {
@@ -501,14 +488,13 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
           stack.includes(requiredModule),
           algorithm,
           "10.d.ii",
-          this.modulePath,
-          required.node
+          this
         );
 
         this.maybeReportImportCycle(executeStack, requiredModule, required);
 
         if (typeof requiredModule.ancestorIndex != "number") {
-          internalError("Expected ancestorIndex to have been set by now.", this.modulePath, required.node);
+          internalError("Expected ancestorIndex to have been set by now.");
         }
 
         this.ancestorIndex = Math.min(this.ancestorIndex, requiredModule.ancestorIndex);
@@ -521,8 +507,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       executeStack.length > 0 && executeStack[executeStack.length - 1] == this,
       algorithm,
       "11.x.1",
-      this.modulePath,
-      null,
+      this
     );
     executeStack.pop();
     this.hasExecuted = true;
@@ -532,15 +517,13 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       stack.filter((mod: CyclicModuleRecord) => mod === this).length == 1,
       algorithm,
       "12",
-      this.modulePath,
-      null,
+      this
     );
     assert(
       this.ancestorIndex <= this.index,
       algorithm,
       "13",
-      this.modulePath,
-      null,
+      this
     );
 
     // Step 14.
@@ -616,7 +599,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
     // Step 9
     for (let exp of this.starExportEntries) {
-      let requestedModule = this.host.resolveImportedModule(this, exp.node, exp.moduleRequest);
+      let requestedModule = this.host.resolveImportedModule(this, exp.moduleRequest);
 
       let starNames = requestedModule.getExportedNames(exportStarSet);
       for (let name of starNames) {
@@ -659,7 +642,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     // Step 7.
     for (let exportEntry of this.indirectExportEntries) {
       if (exportEntry.exportName == exportName) {
-        let importedModule = this.host.resolveImportedModule(this, exportEntry.node, exportEntry.moduleRequest);
+        let importedModule = this.host.resolveImportedModule(this, exportEntry.moduleRequest);
 
         if (exportEntry.importName == "*") {
           return {
@@ -679,7 +662,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     // Steps 9-10.
     let starResolution: ResolvedBinding | null = null;
     for (let exportEntry of this.starExportEntries) {
-      let importedModule = this.host.resolveImportedModule(this, exportEntry.node, exportEntry.moduleRequest);
+      let importedModule = this.host.resolveImportedModule(this, exportEntry.moduleRequest);
 
       let resolution = importedModule.resolveExport(exportName, resolveSet);
       if (resolution == "ambiguous") {
@@ -705,31 +688,25 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     for (let exportEntry of this.indirectExportEntries) {
       let resolution = this.resolveExport(exportEntry.exportName);
       if (!resolution) {
-        throw new IssueError({
-          severity: Severity.Error,
-          modulePath: this.modulePath,
+        this.addIssue({
+          module: this,
           type: IssueType.ExportError,
-          lintMessage: buildLintMessage(
-            IssueType.ExportError,
-            `Export of ${exportEntry.exportName} could not be resolved.`,
-            exportEntry.node,
-            Severity.Error,
-          )
+          message: `Export of ${exportEntry.exportName} could not be resolved.`,
+          node: exportEntry.node,
         });
+
+        continue;
       }
 
       if (resolution == "ambiguous") {
-        throw new IssueError({
-          severity: Severity.Error,
-          modulePath: this.modulePath,
+        this.addIssue({
+          module: this,
           type: IssueType.ExportError,
-          lintMessage: buildLintMessage(
-            IssueType.ExportError,
-            `Export of ${exportEntry.exportName} resolves ambiguously.`,
-            exportEntry.node,
-            Severity.Error,
-          )
+          message: `Export of ${exportEntry.exportName} resolved ambiguously.`,
+          node: exportEntry.node,
         });
+
+        continue;
       }
     }
 
@@ -738,7 +715,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
     // Step 9.
     for (let importEntry of this.importEntries) {
-      let importedModule = this.host.resolveImportedModule(this, importEntry.node, importEntry.moduleRequest);
+      let importedModule = this.host.resolveImportedModule(this, importEntry.moduleRequest);
 
       if (importEntry.importName == "*") {
         this.environmentRecord.createImmutableBinding(importEntry.localName, importedModule.getModuleNamespace());
@@ -746,33 +723,27 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
         let resolution = importedModule.resolveExport(importEntry.importName);
 
         if (!resolution) {
-          throw new IssueError({
-            severity: Severity.Error,
-            modulePath: this.modulePath,
+          this.addIssue({
+            module: this,
+            node: importEntry.node,
             type: IssueType.ImportError,
+            message: `Import of ${importEntry.importName} could not be resolved by ${importedModule.relativePath}.`,
             specifier: importEntry.moduleRequest,
-            lintMessage: buildLintMessage(
-              IssueType.ImportError,
-              `Import of ${importEntry.importName} could not be resolved by ${importedModule.relativePath}.`,
-              importEntry.node,
-              Severity.Error,
-            )
           });
+
+          continue;
         }
   
         if (resolution == "ambiguous") {
-          throw new IssueError({
-            severity: Severity.Error,
-            modulePath: this.modulePath,
+          this.addIssue({
+            module: this,
+            node: importEntry.node,
             type: IssueType.ImportError,
+            message: `Import of ${importEntry.importName} resolves ambiguously.`,
             specifier: importEntry.moduleRequest,
-            lintMessage: buildLintMessage(
-              IssueType.ImportError,
-              `Import of ${importEntry.importName} resolves ambiguously.`,
-              importEntry.node,
-              Severity.Error,
-            )
           });
+
+          continue;
         }
 
         if (resolution.bindingName == "*namespace*") {
@@ -791,21 +762,16 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
         continue;
       }
 
-      let importedModule = this.host.resolveImportedModule(this, importEntry.node, importEntry.moduleRequest);
+      let importedModule = this.host.resolveImportedModule(this, importEntry.moduleRequest);
       if (!importedModule.hasExecuted) {
         // The imported module has not been evaluated so use of this import will
         // fail.
-        this.host.addIssue({
-          severity: Severity.Error,
-          modulePath: this.modulePath,
-          lintMessage: buildLintMessage(
-            IssueType.UseBeforeExecution,
-            `Import ${importEntry.localName} is used before the module it is imported from has been evaluated.`,
-            importEntry.executionUse,
-            Severity.Error
-          ),
+        this.addIssue({
+          module: this,
           type: IssueType.UseBeforeExecution,
           importEntry,
+          message: `Import ${importEntry.localName} is used before the module it is imported from has been evaluated.`,
+          node: importEntry.node,
         });
       }
     }
@@ -833,8 +799,7 @@ export class ExternalModuleRecord extends CyclicModuleRecord {
       this.status == Status.unlinked,
       algorithm,
       "3",
-      this.modulePath,
-      null
+      this
     );
 
     this.status = Status.linked;
@@ -857,8 +822,7 @@ export class ExternalModuleRecord extends CyclicModuleRecord {
       this.status == Status.linked,
       algorithm,
       "4",
-      this.modulePath,
-      null
+      this
     );
 
     // Steps 5-9.

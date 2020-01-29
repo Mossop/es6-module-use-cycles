@@ -2,9 +2,9 @@ import { Rule, Scope } from "eslint";
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
 
-import { IssueError, IssueType, internalError, buildLintMessage, Severity, assert } from "./issue";
+import { IssueError, IssueType, internalError, assert, internalWarning } from "./issue";
 import { SourceTextModuleRecord, ImportEntry, LocalExportEntry, IndirectExportEntry,
-  ExportEntry, StarExportEntry } from "./modulerecord";
+  ExportEntry, StarExportEntry, CyclicModuleRecord } from "./modulerecord";
 
 type Parented<T> = T & { parent: ESTree.Node };
 
@@ -12,27 +12,38 @@ function isParented<T>(node: T): node is Parented<T> {
   return "parent" in node;
 }
 
-function* importEntries(modulePath: string, program: ESTree.Program): Iterable<ImportEntry> {
+function* importEntries(module: CyclicModuleRecord, program: ESTree.Program): Iterable<ImportEntry> {
   for (let node of program.body) {
     switch (node.type) {
       case "ImportDeclaration": {
         if (typeof node.source.value != "string") {
-          let lintMessage = buildLintMessage(
-            IssueType.ImportError,
-            `Found an import declaration with a non-string module specifier: ${node.source.value}`,
-            node,
-            Severity.Error,
-          );
-
-          throw new IssueError({
-            severity: Severity.Error,
-            modulePath: modulePath,
-            lintMessage,
+          module.addIssue({
+            module,
             type: IssueType.ImportError,
+            message: "Import includes a non-string module specifier.",
             specifier: String(node.source.value),
+            node,
           });
+
+          continue;
         }
         let moduleSpecifier = node.source.value;
+
+        if (moduleSpecifier.startsWith(".")) {
+          try {
+            module.resolveModule(moduleSpecifier);
+          } catch (e) {
+            module.addIssue({
+              module,
+              type: IssueType.ImportError,
+              message: `Unable to locate module for specifier '${moduleSpecifier}' from ${module.modulePath}.`,
+              specifier: moduleSpecifier,
+              node,
+            });
+
+            continue;
+          }
+        }
 
         for (let specifier of node.specifiers) {
           switch (specifier.type) {
@@ -87,39 +98,51 @@ function* importEntries(modulePath: string, program: ESTree.Program): Iterable<I
  *     export default `ClassDeclaration`;
  *     export default `AssignmentExpression`
  */
-function* exportEntries(modulePath: string, program: ESTree.Program): Iterable<ExportEntry> {
+function* exportEntries(module: SourceTextModuleRecord, program: ESTree.Program): Iterable<ExportEntry> {
   for (let node of program.body) {
     switch (node.type) {
       case "ExportNamedDeclaration": {
-        let moduleRequest: string | null;
+        let moduleSpecifier: string | null;
         if (node.source) {
           if (typeof node.source.value != "string") {
-            let lintMessage = buildLintMessage(
-              IssueType.ExportError,
-              `Found an export declaration with a non-string module specifier: ${node.source.value}`,
+            module.addIssue({
+              module,
+              type: IssueType.ImportError,
+              message: "Export includes a non-string module specifier.",
+              specifier: String(node.source.value),
               node,
-              Severity.Error,
-            );
-
-            throw new IssueError({
-              severity: Severity.Error,
-              modulePath: modulePath,
-              lintMessage,
-              type: IssueType.ExportError,
             });
+
+            continue;
           }
-          moduleRequest = node.source.value;
+
+          moduleSpecifier = node.source.value;
+
+          if (moduleSpecifier.startsWith(".")) {
+            try {
+              module.resolveModule(moduleSpecifier);
+            } catch (e) {
+              module.addIssue({
+                module,
+                type: IssueType.ImportError,
+                message: `Unable to locate module for specifier '${moduleSpecifier}' from ${module.modulePath}.`,
+                specifier: moduleSpecifier,
+                node,
+              });
+  
+              continue;
+            }
+          }
         } else {
-          moduleRequest = null;
+          moduleSpecifier = null;
         }
 
         if (node.declaration) {
           // This is the `export var foo = ...;` form.
           assert(
-            node.specifiers.length == 0 && !moduleRequest,
+            node.specifiers.length == 0 && !moduleSpecifier,
             "https://tc39.es/ecma262/#sec-exports-static-semantics-exportentries", "0",
-            modulePath,
-            node
+            module
           );
 
           if (node.declaration.type == "VariableDeclaration") {
@@ -130,7 +153,7 @@ function* exportEntries(modulePath: string, program: ESTree.Program): Iterable<E
                   node: varDeclarator,
                   declaration: node,
                   exportName: varDeclarator.id.name,
-                  moduleRequest,
+                  moduleRequest: moduleSpecifier,
                   importName: null,
                   localName: varDeclarator.id.name,
                 };
@@ -138,21 +161,22 @@ function* exportEntries(modulePath: string, program: ESTree.Program): Iterable<E
                 // Object destructuring, `var { a, b: c } = foo;
                 for (let prop of varDeclarator.id.properties) {
                   if (prop.key.type != "Identifier" || prop.value.type != "Identifier") {
-                    internalError("Unsupported object pattern property type",
-                      modulePath, prop);
+                    internalWarning("Unsupported object pattern property type");
+                    continue;
                   }
+
                   yield {
                     node: prop,
                     declaration: node,
                     exportName: prop.value.name,
-                    moduleRequest,
+                    moduleRequest: moduleSpecifier,
                     importName: null,
                     localName: prop.key.name,
                   };
                 }
               } else {
-                internalError(`Unsupported variable declarator type ${varDeclarator.id.type}`,
-                  modulePath, varDeclarator);
+                internalWarning(`Unsupported variable declarator type ${varDeclarator.id.type}`);
+                continue;
               }
             }
           } else if (node.declaration.id) {
@@ -161,7 +185,7 @@ function* exportEntries(modulePath: string, program: ESTree.Program): Iterable<E
               node: node.declaration,
               declaration: node,
               exportName: node.declaration.id.name,
-              moduleRequest,
+              moduleRequest: moduleSpecifier,
               importName: null,
               localName: node.declaration.id.name,
             };
@@ -170,12 +194,12 @@ function* exportEntries(modulePath: string, program: ESTree.Program): Iterable<E
         } else {
           // { foo, bar as baz }
           for (let specifier of node.specifiers) {
-            if (moduleRequest) {
+            if (moduleSpecifier) {
               yield {
                 node: specifier,
                 declaration: node,
                 exportName: specifier.exported.name,
-                moduleRequest,
+                moduleRequest: moduleSpecifier,
                 importName: specifier.local.name,
                 localName: null,
               };
@@ -184,7 +208,7 @@ function* exportEntries(modulePath: string, program: ESTree.Program): Iterable<E
                 node: specifier,
                 declaration: node,
                 exportName: specifier.exported.name,
-                moduleRequest,
+                moduleRequest: moduleSpecifier,
                 importName: null,
                 localName: specifier.local.name,
               };
@@ -208,26 +232,40 @@ function* exportEntries(modulePath: string, program: ESTree.Program): Iterable<E
       case "ExportAllDeclaration": {
         // export * from ...;
         if (typeof node.source.value != "string") {
-          let lintMessage = buildLintMessage(
-            IssueType.ExportError,
-            `Found an export declaration with a non-string module specifier: ${node.source.value}`,
+          module.addIssue({
+            module,
+            type: IssueType.ImportError,
+            message: "Export includes a non-string module specifier.",
+            specifier: String(node.source.value),
             node,
-            Severity.Error,
-          );
-
-          throw new IssueError({
-            severity: Severity.Error,
-            modulePath: modulePath,
-            lintMessage,
-            type: IssueType.ExportError,
           });
+
+          continue;
+        }
+
+        let moduleSpecifier = node.source.value;
+
+        if (moduleSpecifier.startsWith(".")) {
+          try {
+            module.resolveModule(moduleSpecifier);
+          } catch (e) {
+            module.addIssue({
+              module,
+              type: IssueType.ImportError,
+              message: `Unable to locate module for specifier '${moduleSpecifier}' from ${module.modulePath}.`,
+              node,
+              specifier: moduleSpecifier,
+            });
+
+            continue;
+          }
         }
 
         yield {
           node,
           declaration: node,
           exportName: null,
-          moduleRequest: node.source.value,
+          moduleRequest: moduleSpecifier,
           importName: "*",
           localName: null,
         };
@@ -320,20 +358,18 @@ function findImportUsage(context: Rule.RuleContext, importEntry: ImportEntry): v
 export function createParser(module: SourceTextModuleRecord, context: Rule.RuleContext): Rule.RuleListener {
   return {
     "Program": (program: Parented<ESTree.Program>): void => {
-      let modulePath = context.getFilename();
-
       try {
         // https://tc39.es/ecma262/#sec-parsemodule
 
         // Steps 4-6.
-        for (let importEntry of importEntries(modulePath, program)) {
+        for (let importEntry of importEntries(module, program)) {
           // Filter out any unknown modules.
           if (importEntry.moduleRequest.startsWith(".")) {
             try {
-              module.host.resolveModule(modulePath, importEntry.declaration, importEntry.moduleRequest);
+              module.host.resolveModule(module, importEntry.moduleRequest);
             } catch (e) {
               if (e instanceof IssueError) {
-                module.host.addIssue(e.issue);
+                module.addIssue(e.issue);
                 continue;
               }
 
@@ -347,21 +383,20 @@ export function createParser(module: SourceTextModuleRecord, context: Rule.RuleC
         }
 
         // Steps 10-11.
-        for (let exportEntry of exportEntries(modulePath, program)) {
+        for (let exportEntry of exportEntries(module, program)) {
           if (exportEntry.moduleRequest == null) {
             if (!exportEntry.localName) {
-              internalError("An export with no module specifier must have a local name.",
-                modulePath, exportEntry.node);
+              internalError("An export with no module specifier must have a local name.");
             }
 
             let importEntry = module.getImportEntry(exportEntry.localName);
             if (!importEntry) {
-              module.localExportEntries.push(new LocalExportEntry(modulePath, exportEntry));
+              module.localExportEntries.push(new LocalExportEntry(module, exportEntry));
             } else {
               if (importEntry.importName == "*") {
-                module.localExportEntries.push(new LocalExportEntry(modulePath, exportEntry));
+                module.localExportEntries.push(new LocalExportEntry(module, exportEntry));
               } else {
-                module.indirectExportEntries.push(new IndirectExportEntry(modulePath, {
+                module.indirectExportEntries.push(new IndirectExportEntry(module, {
                   node: exportEntry.node,
                   declaration: exportEntry.declaration,
                   moduleRequest: importEntry.moduleRequest,
@@ -372,31 +407,16 @@ export function createParser(module: SourceTextModuleRecord, context: Rule.RuleC
               }
             }
           } else {
-            // Filter out any unknown modules.
-            if (exportEntry.moduleRequest.startsWith(".")) {
-              try {
-                module.host.resolveModule(modulePath, exportEntry.declaration, exportEntry.moduleRequest);
-              } catch (e) {
-                if (e instanceof IssueError) {
-                  module.host.addIssue(e.issue);
-                  continue;
-                }
-
-                throw e;
-              }
-            }
-
             if (exportEntry.importName == "*" && exportEntry.exportName == null) {
-              module.starExportEntries.push(new StarExportEntry(modulePath, exportEntry));
+              module.starExportEntries.push(new StarExportEntry(module, exportEntry));
             } else {
-              module.indirectExportEntries.push(new IndirectExportEntry(modulePath, exportEntry));
+              module.indirectExportEntries.push(new IndirectExportEntry(module, exportEntry));
             }
           }
         }
       } catch (exc) {
         if (exc instanceof IssueError) {
-          console.error(exc.message);
-          module.host.addIssue(exc.issue);
+          module.addIssue(exc.issue);
         } else {
           throw exc;
         }

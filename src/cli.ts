@@ -16,7 +16,7 @@ export interface DefaultOptions {
   command: "*";
   entrypoints: NonEmptyArray<string>;
   extensions: string[];
-  includeWarnings: boolean;
+  allCycles: boolean;
 }
 
 export type Options = DefaultOptions;
@@ -27,10 +27,10 @@ type Rejecter<T> = (arg: T) => void;
 interface DefaultArguments {
   _: string[];
   ext: string[];
-  warnings: boolean;
+  allCycles: boolean;
 }
 
-function parseDefaultArguments({ _: entrypoints, ext: extensions, warnings }: DefaultArguments): DefaultOptions {
+function parseDefaultArguments({ _: entrypoints, ext: extensions, allCycles }: DefaultArguments): DefaultOptions {
   if (!entrypoints.length) {
     throw new Error("At least one entrypoint must be provided.");
   }
@@ -60,7 +60,7 @@ function parseDefaultArguments({ _: entrypoints, ext: extensions, warnings }: De
     command: "*",
     entrypoints: makeNonEmpty(entrypoints.map((filename: string) => path.resolve(filename))),
     extensions,
-    includeWarnings: warnings,
+    allCycles,
   };
 }
 
@@ -99,10 +99,10 @@ export function buildArgumentParser(): ArgumentParser {
           description: "The scripts that are the entry points to your application.",
           defaultDescription: "main from package.json"
         })
-        .option("warnings", {
+        .option("allCycles", {
           boolean: true,
           default: false,
-          description: "Displays warnings as well as errors.",
+          description: "Displays likely safe cycles as well as unsafe.",
         })
         .option("ext", {
           type: "string",

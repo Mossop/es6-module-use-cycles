@@ -1,7 +1,7 @@
 import path from "path";
 
 import { ModuleHost } from "../src/host";
-import { ImportCycle, IssueType, intoLintResult, Severity } from "../src/issue";
+import { ImportCycle, IssueType, intoLintResults, Severity, buildLintMessage } from "../src/issue";
 import { CyclicModuleRecord } from "../src/modulerecord";
 import { getExample } from "./helpers/utils";
 
@@ -37,7 +37,7 @@ test("Lint results", () => {
   let issues = host.getIssues();
   expect(issues).toHaveLength(4);
 
-  expect(issues[0].lintMessage).toEqual(expect.objectContaining({
+  expect(buildLintMessage(issues[0])).toEqual(expect.objectContaining({
     ruleId: IssueType.ImportCycle,
     severity: Severity.Warning,
     nodeType: "ImportDeclaration",
@@ -47,7 +47,7 @@ test("Lint results", () => {
     endColumn: 35,
   }));
 
-  expect(issues[1].lintMessage).toEqual(expect.objectContaining({
+  expect(buildLintMessage(issues[1])).toEqual(expect.objectContaining({
     ruleId: IssueType.ImportCycle,
     severity: Severity.Warning,
     nodeType: "ImportDeclaration",
@@ -57,7 +57,7 @@ test("Lint results", () => {
     endColumn: 35,
   }));
 
-  expect(issues[2].lintMessage).toEqual(expect.objectContaining({
+  expect(buildLintMessage(issues[2])).toEqual(expect.objectContaining({
     ruleId: IssueType.ImportCycle,
     severity: Severity.Warning,
     nodeType: "ImportDeclaration",
@@ -67,7 +67,7 @@ test("Lint results", () => {
     endColumn: 43,
   }));
 
-  expect(issues[3].lintMessage).toEqual(expect.objectContaining({
+  expect(buildLintMessage(issues[3])).toEqual(expect.objectContaining({
     ruleId: IssueType.ImportCycle,
     severity: Severity.Warning,
     nodeType: "ImportDeclaration",
@@ -77,42 +77,38 @@ test("Lint results", () => {
     endColumn: 35,
   }));
 
-  let results = intoLintResult(issues);
+  let results = intoLintResults(issues);
   expect(results).toHaveLength(4);
 
-  expect(results[0]).toEqual({
+  expect(results[0]).toEqual(expect.objectContaining({
     filePath: path.resolve(example, "namedExport.js"),
-    messages: [issues[0].lintMessage],
     errorCount: 0,
     warningCount: 1,
     fixableErrorCount: 0,
     fixableWarningCount: 0,
-  });
+  }));
 
-  expect(results[1]).toEqual({
+  expect(results[1]).toEqual(expect.objectContaining({
     filePath: path.resolve(example, "starImported.js"),
-    messages: [issues[1].lintMessage],
     errorCount: 0,
     warningCount: 1,
     fixableErrorCount: 0,
     fixableWarningCount: 0,
-  });
+  }));
 
-  expect(results[2]).toEqual({
+  expect(results[2]).toEqual(expect.objectContaining({
     filePath: path.resolve(example, "direct.js"),
-    messages: [issues[2].lintMessage],
     errorCount: 0,
     warningCount: 1,
     fixableErrorCount: 0,
     fixableWarningCount: 0,
-  });
+  }));
 
-  expect(results[3]).toEqual({
+  expect(results[3]).toEqual(expect.objectContaining({
     filePath: path.resolve(example, "starExport.js"),
-    messages: [issues[3].lintMessage],
     errorCount: 0,
     warningCount: 1,
     fixableErrorCount: 0,
     fixableWarningCount: 0,
-  });
+  }));
 });

@@ -10,7 +10,7 @@ test("Parses basic arguments", async() => {
   expect(await parser.parse([file])).toMatchObject({
     entrypoints: [file],
     extensions: [".js"],
-    includeWarnings: false,
+    allCycles: false,
   });
 });
 
@@ -18,10 +18,10 @@ test("Allow warnings", async() => {
   let parser = buildArgumentParser();
   let file = path.join(examples, "basic-cycle", "entry.js");
   let module = path.join(examples, "basic-cycle", "entry");
-  expect(await parser.parse([module, "--warnings"])).toMatchObject({
+  expect(await parser.parse([module, "--allCycles"])).toMatchObject({
     entrypoints: [file],
     extensions: [".js"],
-    includeWarnings: true,
+    allCycles: true,
   });
 });
 
@@ -58,6 +58,6 @@ test("Parses extensions", async() => {
   expect(result).toMatchObject({
     entrypoints: [file1, file2, file3],
     extensions: expected,
-    includeWarnings: false,
+    allCycles: false,
   });
 });

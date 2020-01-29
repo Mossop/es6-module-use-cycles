@@ -35,13 +35,25 @@ function getPosition(node: ESTree.Node | null): Position {
   };
 }
 
-export function buildLintMessage(issueType: IssueType, message: string, node: ESTree.Node | null, severity: Severity): Linter.LintMessage {
+function getSeverity(issue: Issue): Severity {
+  if (issue.type == IssueType.EslintIssue) {
+    return issue.severity;
+  }
+
+  return issue.type == IssueType.ImportCycle ? Severity.Warning : Severity.Error;
+}
+
+export function buildLintMessage(issue: Issue): Linter.LintMessage {
+  if (issue.type == IssueType.EslintIssue) {
+    return issue.lintMessage;
+  }
+
   return {
-    ruleId: issueType,
-    message,
-    severity,
-    nodeType: node ? node.type : "",
-    ...getPosition(node),
+    ruleId: issue.type,
+    message: issue.message,
+    severity: getSeverity(issue),
+    nodeType: issue.node ? issue.node.type : "",
+    ...getPosition(issue.node),
   };
 }
 
@@ -56,9 +68,9 @@ export enum IssueType {
 }
 
 interface BaseIssue {
-  severity: Severity;
-  modulePath: string;
-  lintMessage: Linter.LintMessage;
+  module: CyclicModuleRecord;
+  node: ESTree.Node | null;
+  message: string;
 }
 
 export interface ImportCycle extends BaseIssue {
@@ -88,6 +100,8 @@ export interface InternalError extends BaseIssue {
 
 export interface EslintIssue extends BaseIssue {
   type: IssueType.EslintIssue;
+  severity: Severity;
+  lintMessage: Linter.LintMessage;
 }
 
 export interface UseBeforeExecutionIssue extends BaseIssue {
@@ -97,7 +111,7 @@ export interface UseBeforeExecutionIssue extends BaseIssue {
 
 export type Issue = EslintIssue | Assertion | InternalError | ImportError | ExportError | ImportCycle | UseBeforeExecutionIssue;
 
-export function intoLintResult(issues: Issue[]): CLIEngine.LintResult[] {
+export function intoLintResults(issues: Issue[]): CLIEngine.LintResult[] {
   let results: CLIEngine.LintResult[] = [];
   issues = [...issues];
 
@@ -108,10 +122,10 @@ export function intoLintResult(issues: Issue[]): CLIEngine.LintResult[] {
 
   const buildInitialLintResult = (issue: Issue): CLIEngine.LintResult => {
     return {
-      filePath: issue.modulePath,
-      messages: [issue.lintMessage],
-      errorCount: issue.lintMessage.severity == 2 ? 1 : 0,
-      warningCount: issue.lintMessage.severity == 2 ? 0 : 1,
+      filePath: issue.module.modulePath,
+      messages: [buildLintMessage(issue)],
+      errorCount: getSeverity(issue) == Severity.Error ? 1 : 0,
+      warningCount: getSeverity(issue) == Severity.Error ? 0 : 1,
       fixableErrorCount: 0,
       fixableWarningCount: 0,
     };
@@ -119,12 +133,12 @@ export function intoLintResult(issues: Issue[]): CLIEngine.LintResult[] {
 
   let currentResult = buildInitialLintResult(issue);
   for (issue of issues) {
-    if (issue.modulePath != currentResult.filePath) {
+    if (issue.module.modulePath != currentResult.filePath) {
       results.push(currentResult);
       currentResult = buildInitialLintResult(issue);
     } else {
-      currentResult.messages.push(issue.lintMessage);
-      if (issue.lintMessage.severity == 2) {
+      currentResult.messages.push(buildLintMessage(issue));
+      if (getSeverity(issue) == Severity.Error) {
         currentResult.errorCount++;
       } else {
         currentResult.warningCount++;
@@ -138,38 +152,25 @@ export function intoLintResult(issues: Issue[]): CLIEngine.LintResult[] {
 
 export class IssueError extends Error {
   public constructor(public readonly issue: Issue) {
-    super(issue.lintMessage.message);
+    super(issue.message);
   }
 }
 
-export function assert(check: boolean, algorithm: string, part: string, modulePath: string, node: ESTree.Node | null): void {
+export function assert(check: boolean, algorithm: string, part: string, module: CyclicModuleRecord): void {
   /* istanbul ignore else: We should be unable to trigger assertions in tests. */
   if (check) {
     return;
   } else {
-    let lintMessage = buildLintMessage(IssueType.Assertion, `Assertion in ${algorithm} part ${part}`, node, Severity.Error);
-    let error: Assertion = {
-      severity: Severity.Error,
-      modulePath: modulePath,
-      lintMessage,
-      type: IssueType.Assertion,
-      algorithm,
-      part,
-    };
-    throw new IssueError(error);
+    throw new Error(`Assertion in ${algorithm} part ${part} for module ${module.modulePath}`);
   }
 }
 
 /* istanbul ignore next: We should be unable to trigger internal errors in tests. */
-export function internalError(message: string, modulePath: string, node: ESTree.Node | null): never {
-  let lintMessage = buildLintMessage(IssueType.InternalError, message, node, Severity.Error);
-  let error: InternalError = {
-    severity: Severity.Error,
-    modulePath: modulePath,
-    lintMessage,
-    type: IssueType.InternalError,
-    message,
-  };
+export function internalError(message: string): never {
+  throw new Error(message);
+}
 
-  throw new IssueError(error);
+/* istanbul ignore next: We should be unable to trigger internal errors in tests. */
+export function internalWarning(message: string): void {
+  console.warn(message);
 }
