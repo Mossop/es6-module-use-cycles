@@ -50,7 +50,7 @@ function parseDefaultArguments({ _: entrypoints, ext: extensions, warnings }: De
   }, new Set<string>()));
 
   entrypoints = entrypoints.map((entry: string): string => {
-    return resolve.sync(entry, {
+    return resolve.sync(path.resolve(process.cwd(), entry), {
       basedir: process.cwd(),
       extensions: extensions,
     });
