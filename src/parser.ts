@@ -237,6 +237,18 @@ function* exportEntries(modulePath: string, program: ESTree.Program): Iterable<E
   }
 }
 
+function isFunctionVariableUsedInGlobalPath(context: Rule.RuleContext, variable: Scope.Variable): boolean {
+  for (let reference of variable.references) {
+    if (isParented(reference.identifier) && reference.identifier.parent.type == "CallExpression") {
+      if (isInGlobalPath(context, reference.from)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 function isInGlobalPath(context: Rule.RuleContext, scope: Scope.Scope | null): boolean {
   while (scope) {
     if (scope.type == "class") {
@@ -254,12 +266,17 @@ function isInGlobalPath(context: Rule.RuleContext, scope: Scope.Scope | null): b
 
         // Get the variable for the function and see if it is ever called.
         let variable = context.getDeclaredVariables(scope.block)[0];
-        for (let reference of variable.references) {
-          if (isParented(reference.identifier) && reference.identifier.parent.type == "CallExpression") {
-            if (isInGlobalPath(context, reference.from)) {
-              return true;
-            }
-          }
+        return isFunctionVariableUsedInGlobalPath(context, variable);
+      }
+
+      if (scope.block.type == "ArrowFunctionExpression") {
+        if (!isParented(scope.block)) {
+          return false;
+        }
+
+        let variables = context.getDeclaredVariables(scope.block.parent);
+        if (variables.length > 0) {
+          return isFunctionVariableUsedInGlobalPath(context, variables[0]);
         }
 
         return false;
