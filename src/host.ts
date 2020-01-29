@@ -4,6 +4,7 @@ import path from "path";
 import { Linter, Rule, CLIEngine } from "eslint";
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
+import resolve from "resolve";
 
 import { Issue, IssueType, IssueError, internalError, Severity, buildLintMessage } from "./issue";
 import { SourceTextModuleRecord, CyclicModuleRecord, ExternalModuleRecord } from "./modulerecord";
@@ -34,33 +35,21 @@ export class ModuleHost {
   }
 
   public resolveModule(sourceScript: string, node: ESTree.Node, specifier: string): string {
-    let basePath = path.resolve(path.dirname(sourceScript), specifier);
-
     try {
-      let stats = fs.statSync(basePath);
-      if (stats.isDirectory()) {
-        basePath = path.join(basePath, "index");
-      } else {
-        return basePath;
-      }
-    } catch {
-      // Ignore the error.
+      return resolve.sync(specifier, {
+        basedir: path.dirname(sourceScript),
+        extensions: this.moduleExtensions,
+      });
+    } catch (e) {
+      let lintMessage = buildLintMessage(IssueType.ImportError, `Unable to locate module for specifier '${specifier}' from ${sourceScript}.`, node, Severity.Error);
+      throw new IssueError({
+        severity: Severity.Error,
+        filePath: sourceScript,
+        lintMessage,
+        type: IssueType.ImportError,
+        specifier,
+      });
     }
-
-    for (let extension of this.moduleExtensions) {
-      if (fs.existsSync(basePath + extension)) {
-        return basePath + extension;
-      }
-    }
-
-    let lintMessage = buildLintMessage(IssueType.ImportError, `Unable to locate module for specifier '${specifier}'.`, node, Severity.Error);
-    throw new IssueError({
-      severity: Severity.Error,
-      filePath: sourceScript,
-      lintMessage,
-      type: IssueType.ImportError,
-      specifier,
-    });
   }
 
   public resolveImportedModule(referencingScriptOrModule: CyclicModuleRecord | string, node: ESTree.Node, specifier: string): CyclicModuleRecord {
@@ -103,6 +92,7 @@ export class ModuleHost {
     } catch (e) {
       if (e instanceof IssueError) {
         this.addIssue(e.issue);
+        return null;
       }
 
       throw e;

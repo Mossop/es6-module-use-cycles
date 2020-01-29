@@ -2,10 +2,13 @@ import path from "path";
 
 import { buildArgumentParser } from "./cli";
 
+let examples = path.resolve(__dirname, path.join("..", "tests", "examples"));
+
 test("Parses basic arguments", async() => {
   let parser = buildArgumentParser();
-  expect(await parser.parse(["a"])).toMatchObject({
-    entrypoints: [path.resolve("a")],
+  let file = path.join(examples, "basic-cycle", "entry.js");
+  expect(await parser.parse([file])).toMatchObject({
+    entrypoints: [file],
     extensions: [".js"],
     includeWarnings: false,
   });
@@ -13,8 +16,10 @@ test("Parses basic arguments", async() => {
 
 test("Allow warnings", async() => {
   let parser = buildArgumentParser();
-  expect(await parser.parse(["a", "--warnings"])).toMatchObject({
-    entrypoints: [path.resolve("a")],
+  let file = path.join(examples, "basic-cycle", "entry.js");
+  let module = path.join(examples, "basic-cycle", "entry");
+  expect(await parser.parse([module, "--warnings"])).toMatchObject({
+    entrypoints: [file],
     extensions: [".js"],
     includeWarnings: true,
   });
@@ -26,16 +31,21 @@ test("Fails on empty", () => {
 });
 
 test("Parses extensions", async() => {
+  let file1 = path.join(examples, "basic-cycle", "entry.js");
+  let module = path.join(examples, "basic-cycle");
+  let file2 = path.join(examples, "basic-cycle", "module.js");
+  let file3 = path.join(examples, "indirect-imports", "direct.js");
+
   let parser = buildArgumentParser();
   let args = [
-    "a",
+    module,
     "--ext", ".ts",
-    "b",
+    file2,
     "--ext", ".tsx,.jsx",
     "--ext", "fs,.gs",
     "--ext", ".ys,.ps,ws",
     "--ext", "qs,.qs,,,qs,.qs",
-    "c",
+    file3,
   ];
 
   let expected = [".ts", ".jsx", ".tsx", ".fs", ".gs", ".ys", ".ps", ".ws", ".qs"];
@@ -46,7 +56,7 @@ test("Parses extensions", async() => {
   }
 
   expect(result).toMatchObject({
-    entrypoints: [path.resolve("a"), path.resolve("b"), path.resolve("c")],
+    entrypoints: [file1, file2, file3],
     extensions: expected,
     includeWarnings: false,
   });

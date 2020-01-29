@@ -1,5 +1,6 @@
 import path from "path";
 
+import resolve from "resolve";
 import yargs from "yargs";
 
 export type NonEmptyArray<T> = [T, ...T[]];
@@ -34,7 +35,7 @@ function parseDefaultArguments({ _: entrypoints, ext: extensions, warnings }: De
     throw new Error("At least one entrypoint must be provided.");
   }
 
-  let extensionSet = extensions.reduce((set: Set<string>, current: string): Set<string> => {
+  extensions = Array.from(extensions.reduce((set: Set<string>, current: string): Set<string> => {
     for (let extension of current.split(",")) {
       if (extension.length == 0) {
         continue;
@@ -46,12 +47,19 @@ function parseDefaultArguments({ _: entrypoints, ext: extensions, warnings }: De
       set.add(extension);
     }
     return set;
-  }, new Set<string>());
+  }, new Set<string>()));
+
+  entrypoints = entrypoints.map((entry: string): string => {
+    return resolve.sync(entry, {
+      basedir: process.cwd(),
+      extensions: extensions,
+    });
+  });
 
   return {
     command: "*",
     entrypoints: makeNonEmpty(entrypoints.map((filename: string) => path.resolve(filename))),
-    extensions: Array.from(extensionSet),
+    extensions,
     includeWarnings: warnings,
   };
 }
