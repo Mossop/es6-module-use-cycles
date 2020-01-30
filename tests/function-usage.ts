@@ -1,40 +1,66 @@
 import path from "path";
 
 import { ModuleHost } from "../src/host";
-import { IssueType, ImportCycle, UseBeforeExecutionIssue } from "../src/issue";
-import { CyclicModuleRecord } from "../src/modulerecord";
-import { getExample } from "./helpers/utils";
+import { IssueType } from "../src/issue";
+import { getExample, testableIssues } from "./helpers/utils";
 
 const example = getExample();
 
-test("Cycles detected in basic-cycle.", () => {
+test("Cycles when used inside a function.", () => {
   let host = new ModuleHost([".js"], example);
   host.parseEntrypoint(path.join(example, "entry.js"));
 
-  let issues = host.getIssues();
-  expect(issues).toHaveLength(2);
-  expect(issues[0].type).toBe(IssueType.ImportCycle);
-
-  let cycle = issues[0] as ImportCycle;
-  expect(cycle.stack).toHaveLength(3);
-  expect(cycle.stack.map((m: CyclicModuleRecord) => m.relativePath)).toEqual([
-    "entry.js",
-    "module.js",
-    "entry.js",
+  let issues = testableIssues(host.getIssues());
+  expect(issues).toStrictEqual([
+    expect.objectContaining({
+      type: IssueType.ImportCycle,
+      modulePath: "module.js",
+      nodeType: "ImportDeclaration",
+      location: {
+        start: {
+          line: 1,
+          column: 0,
+        },
+        end: {
+          line: 1,
+          column: 37,
+        },
+      },
+      message: "Import cycle: entry.js -> module.js -> entry.js",
+      stack: [
+        expect.objectContaining({
+          relativePath: "entry.js",
+        }),
+        expect.objectContaining({
+          relativePath: "module.js",
+        }),
+        expect.objectContaining({
+          relativePath: "entry.js",
+        }),
+      ]
+    }),
+    expect.objectContaining({
+      type: IssueType.UseBeforeExecution,
+      modulePath: "module.js",
+      nodeType: "Identifier",
+      location: {
+        start: {
+          line: 4,
+          column: 9,
+        },
+        end: {
+          line: 4,
+          column: 19,
+        },
+      },
+      message: "Import 'buildStore' is used before 'entry.js' has been evaluated.",
+    }),
   ]);
 
-  expect(issues[1].type).toBe(IssueType.UseBeforeExecution);
-  let use = issues[1] as UseBeforeExecutionIssue;
-  expect(use.importEntry.localName).toBe("buildStore");
-  let loc = use.importEntry.executionUse ? use.importEntry.executionUse.loc : {};
-  expect(loc).toStrictEqual(expect.objectContaining({
-    start: {
-      line: 4,
-      column: 9,
-    },
-    end: {
-      line: 4,
-      column: 19,
-    },
-  }));
+  let filenames = host.getFilenames().map((filename: string): string => path.relative(example, filename));
+  filenames.sort();
+  expect(filenames).toStrictEqual([
+    "entry.js",
+    "module.js",
+  ]);
 });

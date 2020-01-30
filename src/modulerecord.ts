@@ -22,13 +22,13 @@ enum Status {
 }
 
 export class ImportEntry {
-  public executionUse: ESTree.Node | null = null;
+  public executionUse: ESTree.Node[] = [];
 
   public constructor(
     // The import specifier.
-    public readonly node: ESTree.Node,
+    public readonly node: ESTree.ImportDefaultSpecifier | ESTree.ImportNamespaceSpecifier | ESTree.ImportSpecifier,
     // The import declaration node.
-    public readonly declaration: ESTree.Node,
+    public readonly declaration: ESTree.ImportDeclaration,
     // The module specifier.
     public readonly moduleRequest: string,
     // The name of the export, may be "*" or "default".
@@ -36,15 +36,17 @@ export class ImportEntry {
     // The name that is used locally.
     public readonly localName: string
   ) {}
-}
 
-export function loggableImportEntry(entry: ImportEntry): Omit<ImportEntry, "node" | "declaration" | "executionUse"> & { usedInExecution: boolean } {
-  return {
-    moduleRequest: entry.moduleRequest,
-    importName: entry.importName,
-    localName: entry.localName,
-    usedInExecution: !!entry.executionUse,
-  };
+  public toJSON(): object {
+    return {
+      node: this.node.type,
+      declaration: this.declaration.type,
+      moduleRequest: this.moduleRequest,
+      importName: this.importName,
+      localName: this.localName,
+      usedInExecution: !!this.executionUse,
+    };
+  }
 }
 
 export interface ExportEntry {
@@ -54,15 +56,6 @@ export interface ExportEntry {
   readonly moduleRequest: string | null;
   readonly importName: string | null;
   readonly localName: string | null;
-}
-
-export function loggableExportEntry(entry: ExportEntry): Omit<ExportEntry, "node" | "declaration"> {
-  return {
-    exportName: entry.exportName,
-    moduleRequest: entry.moduleRequest,
-    importName: entry.importName,
-    localName: entry.localName,
-  };
 }
 
 export class LocalExportEntry implements ExportEntry {
@@ -75,7 +68,7 @@ export class LocalExportEntry implements ExportEntry {
 
   public constructor(public readonly module: CyclicModuleRecord, entry: ExportEntry) {
     if (entry.moduleRequest || entry.importName || !entry.exportName || !entry.localName) {
-      internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(loggableExportEntry(entry))}) as a LocalExportEntry.`);
+      internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(entry)}) as a LocalExportEntry.`);
     }
 
     this.module = module;
@@ -83,6 +76,17 @@ export class LocalExportEntry implements ExportEntry {
     this.declaration = entry.declaration;
     this.exportName = entry.exportName;
     this.localName = entry.localName;
+  }
+
+  public toJSON(): object {
+    return {
+      node: this.node.type,
+      declaration: this.declaration.type,
+      moduleRequest: this.moduleRequest,
+      importName: this.importName,
+      exportName: this.exportName,
+      localName: this.localName,
+    };
   }
 }
 
@@ -96,7 +100,7 @@ export class IndirectExportEntry implements ExportEntry {
 
   public constructor(public readonly module: CyclicModuleRecord, entry: ExportEntry) {
     if (!entry.moduleRequest || !entry.importName || !entry.exportName || entry.localName) {
-      internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(loggableExportEntry(entry))}) as a IndirectExportEntry.`);
+      internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(entry)}) as a IndirectExportEntry.`);
     }
 
     this.node = entry.node;
@@ -104,6 +108,17 @@ export class IndirectExportEntry implements ExportEntry {
     this.moduleRequest = entry.moduleRequest;
     this.exportName = entry.exportName;
     this.importName = entry.importName;
+  }
+
+  public toJSON(): object {
+    return {
+      node: this.node.type,
+      declaration: this.declaration.type,
+      moduleRequest: this.moduleRequest,
+      importName: this.importName,
+      exportName: this.exportName,
+      localName: this.localName,
+    };
   }
 }
 
@@ -117,12 +132,23 @@ export class StarExportEntry implements ExportEntry {
 
   public constructor(public readonly module: CyclicModuleRecord, entry: ExportEntry) {
     if (!entry.moduleRequest || entry.importName != "*" || entry.exportName || entry.localName) {
-      internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(loggableExportEntry(entry))}) as a StarExportEntry.`);
+      internalError(`Invalid attempt to use an ExportEntry (${JSON.stringify(entry)}) as a StarExportEntry.`);
     }
 
     this.node = entry.node;
     this.declaration = entry.declaration;
     this.moduleRequest = entry.moduleRequest;
+  }
+
+  public toJSON(): object {
+    return {
+      node: this.node.type,
+      declaration: this.declaration.type,
+      moduleRequest: this.moduleRequest,
+      importName: this.importName,
+      exportName: this.exportName,
+      localName: this.localName,
+    };
   }
 }
 
@@ -277,6 +303,15 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     modulePath: string
   ) {
     super(host.workingDirectory, host, modulePath);
+  }
+
+  public toJSON(): object {
+    return {
+      modulePath: this.modulePath,
+      relativePath: this.relativePath,
+      status: this.status,
+      hasExecuted: this.hasExecuted,
+    };
   }
 
   private analyseImports(scopeManager: ScopeManager): void {
@@ -812,22 +847,29 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
   protected executeModule(): void {
     for (let importEntry of this.importEntries) {
-      if (!importEntry.executionUse) {
+      if (!importEntry.executionUse.length) {
         // This import is not needed for execution so nothing more to do.
         continue;
       }
 
       let importedModule = this.host.resolveImportedModule(this, importEntry.moduleRequest);
-      if (!importedModule.hasExecuted) {
+      let exported = importedModule.resolveExport(importEntry.importName);
+      if (!exported || exported == "ambiguous") {
+        continue;
+      }
+
+      if (!exported.module.hasExecuted) {
         // The imported module has not been evaluated so use of this import will
         // fail.
-        this.addIssue({
-          module: this,
-          type: IssueType.UseBeforeExecution,
-          importEntry,
-          message: `Import ${importEntry.localName} is used before the module it is imported from has been evaluated.`,
-          node: importEntry.node,
-        });
+        for (let use of importEntry.executionUse) {
+          this.addIssue({
+            module: this,
+            type: IssueType.UseBeforeExecution,
+            importEntry,
+            message: `Import '${importEntry.localName}' is used before '${exported.module.relativePath}' has been evaluated.`,
+            node: use,
+          });
+        }
       }
     }
   }

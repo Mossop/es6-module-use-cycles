@@ -29,7 +29,7 @@ function detectCycles(options: DefaultOptions): void {
 
   let issues = [...host.getIssues()];
   if (!options.allCycles) {
-    issues = issues.filter((issue: Issue): boolean => issue.type == IssueType.ImportCycle);
+    issues = issues.filter((issue: Issue): boolean => issue.type != IssueType.ImportCycle);
   }
   console.log(formatter(intoLintResults(issues)));
 }

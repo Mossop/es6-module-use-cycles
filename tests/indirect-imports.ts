@@ -1,9 +1,8 @@
 import path from "path";
 
 import { ModuleHost } from "../src/host";
-import { ImportCycle, IssueType, intoLintResults, Severity, buildLintMessage } from "../src/issue";
-import { CyclicModuleRecord } from "../src/modulerecord";
-import { getExample } from "./helpers/utils";
+import { IssueType, intoLintResults, Severity, buildLintMessage } from "../src/issue";
+import { getExample, testableIssues } from "./helpers/utils";
 
 const example = getExample();
 
@@ -11,23 +10,129 @@ test("Cycles detected in more complex import/export scenarios.", () => {
   let host = new ModuleHost([".js"], example);
   host.parseEntrypoint(path.join(example, "entry.js"));
 
-  let issues = host.getIssues();
-  expect(issues).toHaveLength(4);
-
-  const expectedCycles = [
-    ["entry.js", "module.js", "namedExport.js", "entry.js"],
-    ["entry.js", "module.js", "starImported.js", "entry.js"],
-    ["entry.js", "module.js", "direct.js", "entry.js"],
-    ["entry.js", "module.js", "starExport.js", "entry.js"],
-  ];
-
-  for (let expected of expectedCycles) {
-    let issue = issues.shift() as ImportCycle;
-
-    expect(issue.type).toBe(IssueType.ImportCycle);
-    expect(issue.stack).toHaveLength(expected.length);
-    expect(issue.stack.map((m: CyclicModuleRecord) => m.relativePath)).toEqual(expected);
-  }
+  let issues = testableIssues(host.getIssues());
+  expect(issues).toStrictEqual([
+    expect.objectContaining({
+      type: IssueType.ImportCycle,
+      modulePath: "direct.js",
+      nodeType: "ImportDeclaration",
+      location: {
+        start: {
+          line: 1,
+          column: 0,
+        },
+        end: {
+          line: 1,
+          column: 43,
+        },
+      },
+      message: "Import cycle: entry.js -> module.js -> direct.js -> entry.js",
+      stack: [
+        expect.objectContaining({
+          relativePath: "entry.js",
+        }),
+        expect.objectContaining({
+          relativePath: "module.js",
+        }),
+        expect.objectContaining({
+          relativePath: "direct.js",
+        }),
+        expect.objectContaining({
+          relativePath: "entry.js",
+        }),
+      ]
+    }),
+    expect.objectContaining({
+      type: IssueType.ImportCycle,
+      modulePath: "namedExport.js",
+      nodeType: "ImportDeclaration",
+      location: {
+        start: {
+          line: 1,
+          column: 0,
+        },
+        end: {
+          line: 1,
+          column: 35,
+        },
+      },
+      message: "Import cycle: entry.js -> module.js -> namedExport.js -> entry.js",
+      stack: [
+        expect.objectContaining({
+          relativePath: "entry.js",
+        }),
+        expect.objectContaining({
+          relativePath: "module.js",
+        }),
+        expect.objectContaining({
+          relativePath: "namedExport.js",
+        }),
+        expect.objectContaining({
+          relativePath: "entry.js",
+        }),
+      ]
+    }),
+    expect.objectContaining({
+      type: IssueType.ImportCycle,
+      modulePath: "starExport.js",
+      nodeType: "ImportDeclaration",
+      location: {
+        start: {
+          line: 1,
+          column: 0,
+        },
+        end: {
+          line: 1,
+          column: 35,
+        },
+      },
+      message: "Import cycle: entry.js -> module.js -> starExport.js -> entry.js",
+      stack: [
+        expect.objectContaining({
+          relativePath: "entry.js",
+        }),
+        expect.objectContaining({
+          relativePath: "module.js",
+        }),
+        expect.objectContaining({
+          relativePath: "starExport.js",
+        }),
+        expect.objectContaining({
+          relativePath: "entry.js",
+        }),
+      ]
+    }),
+    expect.objectContaining({
+      type: IssueType.ImportCycle,
+      modulePath: "starImported.js",
+      nodeType: "ImportDeclaration",
+      location: {
+        start: {
+          line: 1,
+          column: 0,
+        },
+        end: {
+          line: 1,
+          column: 35,
+        },
+      },
+      message: "Import cycle: entry.js -> module.js -> starImported.js -> entry.js",
+      stack: [
+        expect.objectContaining({
+          relativePath: "entry.js",
+        }),
+        expect.objectContaining({
+          relativePath: "module.js",
+        }),
+        expect.objectContaining({
+          relativePath: "starImported.js",
+        }),
+        expect.objectContaining({
+          relativePath: "entry.js",
+        }),
+      ]
+    }),
+  ]);
 });
 
 test("Lint results", () => {

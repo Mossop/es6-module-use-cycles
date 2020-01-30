@@ -1,8 +1,8 @@
 import path from "path";
 
 import { ModuleHost } from "../src/host";
-import { IssueType, ImportError } from "../src/issue";
-import { getExample } from "./helpers/utils";
+import { IssueType } from "../src/issue";
+import { getExample, testableIssues } from "./helpers/utils";
 
 const example = getExample();
 
@@ -10,15 +10,58 @@ test("No errors.", () => {
   let host = new ModuleHost([".js"], example);
   host.parseEntrypoint(path.join(example, "entry.js"));
 
-  let issues = host.getIssues();
-  expect(issues).toHaveLength(3);
-
-  expect(issues[0].type).toBe(IssueType.ImportError);
-  expect((issues[0] as ImportError).specifier).toBe("./bar");
-
-  expect(issues[1].type).toBe(IssueType.ImportError);
-  expect((issues[1] as ImportError).specifier).toBe("./baz");
-
-  expect(issues[2].type).toBe(IssueType.ImportError);
-  expect((issues[2] as ImportError).specifier).toBe("./biz");
+  let issues = testableIssues(host.getIssues());
+  expect(issues).toStrictEqual([
+    expect.objectContaining({
+      type: IssueType.ImportError,
+      modulePath: "entry.js",
+      nodeType: "ImportDeclaration",
+      location: {
+        start: {
+          line: 3,
+          column: 0,
+        },
+        end: {
+          line: 3,
+          column: 28,
+        },
+      },
+      message: "Unable to locate module for specifier './bar'.",
+      specifier: "./bar",
+    }),
+    expect.objectContaining({
+      type: IssueType.ImportError,
+      modulePath: "entry.js",
+      nodeType: "ExportNamedDeclaration",
+      location: {
+        start: {
+          line: 5,
+          column: 0,
+        },
+        end: {
+          line: 5,
+          column: 28,
+        },
+      },
+      message: "Unable to locate module for specifier './baz'.",
+      specifier: "./baz",
+    }),
+    expect.objectContaining({
+      type: IssueType.ImportError,
+      modulePath: "entry.js",
+      nodeType: "ExportAllDeclaration",
+      location: {
+        start: {
+          line: 6,
+          column: 0,
+        },
+        end: {
+          line: 6,
+          column: 22,
+        },
+      },
+      message: "Unable to locate module for specifier './biz'.",
+      specifier: "./biz",
+    }),
+  ]);
 });

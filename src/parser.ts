@@ -115,7 +115,7 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
             module.addIssue({
               module,
               type: IssueType.ImportError,
-              message: `Unable to locate module for specifier '${moduleSpecifier}' from ${module.modulePath}.`,
+              message: `Unable to locate module for specifier '${moduleSpecifier}'.`,
               specifier: moduleSpecifier,
               node,
             });
@@ -205,7 +205,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
               module.addIssue({
                 module,
                 type: IssueType.ImportError,
-                message: `Unable to locate module for specifier '${moduleSpecifier}' from ${module.modulePath}.`,
+                message: `Unable to locate module for specifier '${moduleSpecifier}'.`,
                 specifier: moduleSpecifier,
                 node,
               });
@@ -333,7 +333,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
             module.addIssue({
               module,
               type: IssueType.ImportError,
-              message: `Unable to locate module for specifier '${moduleSpecifier}' from ${module.modulePath}.`,
+              message: `Unable to locate module for specifier '${moduleSpecifier}'.`,
               node,
               specifier: moduleSpecifier,
             });
@@ -387,7 +387,7 @@ export function isInGlobalPath(scopeManager: ScopeManager, scope: Scope | null):
         return isFunctionVariableUsedInGlobalPath(scopeManager, variable);
       }
 
-      if (scope.block.type == "ArrowFunctionExpression") {
+      if (scope.block.type == "ArrowFunctionExpression" || scope.block.type == "FunctionExpression") {
         if (!isParented(scope.block)) {
           return false;
         }
@@ -419,7 +419,7 @@ export function isInGlobalPath(scopeManager: ScopeManager, scope: Scope | null):
  * initial execution.
  */
 export function findImportUsage(scopeManager: ScopeManager, importEntry: ImportEntry): void {
-  let variables = scopeManager.getDeclaredVariables(importEntry.declaration);
+  let variables = scopeManager.getDeclaredVariables(importEntry.node);
   for (let variable of variables) {
     for (let reference of variable.references) {
       if (isParented(reference.identifier) && reference.identifier.parent.type == "ExportSpecifier") {
@@ -428,7 +428,7 @@ export function findImportUsage(scopeManager: ScopeManager, importEntry: ImportE
       }
 
       if (isInGlobalPath(scopeManager, reference.from)) {
-        importEntry.executionUse = reference.identifier;
+        importEntry.executionUse.push(reference.identifier);
       }
     }
   }

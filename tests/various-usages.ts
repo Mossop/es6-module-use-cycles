@@ -6,16 +6,16 @@ import { getExample, testableIssues } from "./helpers/utils";
 
 const example = getExample();
 
-test("Safe cycle detected.", () => {
+test("Cycles detected from various usages.", () => {
   let host = new ModuleHost([".js"], example);
-  host.parseEntrypoint(path.join(example, "a.js"));
+  host.parseEntrypoint(path.join(example, "entry.js"));
 
   let issues = testableIssues(host.getIssues());
   expect(issues).toStrictEqual([
     expect.objectContaining({
       type: IssueType.ImportCycle,
-      modulePath: "b.js",
-      nodeType: "ImportDeclaration",
+      modulePath: "indirectCycle.js",
+      nodeType: "ExportNamedDeclaration",
       location: {
         start: {
           line: 1,
@@ -23,34 +23,28 @@ test("Safe cycle detected.", () => {
         },
         end: {
           line: 1,
-          column: 24,
+          column: 50,
         },
       },
-      message: "Import cycle: a.js -> b.js -> a.js",
+      message: "Import cycle: entry.js -> module.js -> indirectCycle.js -> entry.js",
       stack: [
         expect.objectContaining({
-          relativePath: "a.js",
+          relativePath: "entry.js",
         }),
         expect.objectContaining({
-          relativePath: "b.js",
+          relativePath: "module.js",
         }),
         expect.objectContaining({
-          relativePath: "a.js",
+          relativePath: "indirectCycle.js",
+        }),
+        expect.objectContaining({
+          relativePath: "entry.js",
         }),
       ]
     }),
-  ]);
-});
-
-test("Unsafe cycle detected.", () => {
-  let host = new ModuleHost([".js"], example);
-  host.parseEntrypoint(path.join(example, "b.js"));
-
-  let issues = testableIssues(host.getIssues());
-  expect(issues).toStrictEqual([
     expect.objectContaining({
       type: IssueType.ImportCycle,
-      modulePath: "a.js",
+      modulePath: "module.js",
       nodeType: "ImportDeclaration",
       location: {
         start: {
@@ -59,37 +53,53 @@ test("Unsafe cycle detected.", () => {
         },
         end: {
           line: 1,
-          column: 26,
+          column: 48,
         },
       },
-      message: "Import cycle: b.js -> a.js -> b.js",
+      message: "Import cycle: entry.js -> module.js -> entry.js",
       stack: [
         expect.objectContaining({
-          relativePath: "b.js",
+          relativePath: "entry.js",
         }),
         expect.objectContaining({
-          relativePath: "a.js",
+          relativePath: "module.js",
         }),
         expect.objectContaining({
-          relativePath: "b.js",
+          relativePath: "entry.js",
         }),
       ]
     }),
     expect.objectContaining({
       type: IssueType.UseBeforeExecution,
-      modulePath: "a.js",
+      modulePath: "module.js",
       nodeType: "Identifier",
       location: {
         start: {
           line: 5,
-          column: 12,
+          column: 9,
         },
         end: {
           line: 5,
-          column: 15,
+          column: 20,
         },
       },
-      message: "Import 'add' is used before 'b.js' has been evaluated.",
+      message: "Import 'unavailable' is used before 'entry.js' has been evaluated.",
+    }),
+    expect.objectContaining({
+      type: IssueType.UseBeforeExecution,
+      modulePath: "module.js",
+      nodeType: "Identifier",
+      location: {
+        start: {
+          line: 10,
+          column: 25,
+        },
+        end: {
+          line: 10,
+          column: 33,
+        },
+      },
+      message: "Import 'indirect' is used before 'entry.js' has been evaluated.",
     }),
   ]);
 });
