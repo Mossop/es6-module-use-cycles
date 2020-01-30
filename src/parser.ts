@@ -94,6 +94,7 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
   for (let node of program.body) {
     switch (node.type) {
       case "ImportDeclaration": {
+        /* istanbul ignore next: The parser should have caught this and thrown. */
         if (typeof node.source.value != "string") {
           module.addIssue({
             module,
@@ -182,6 +183,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
       case "ExportNamedDeclaration": {
         let moduleSpecifier: string | null;
         if (node.source) {
+          /* istanbul ignore next: The parser should have caught this and thrown. */
           if (typeof node.source.value != "string") {
             module.addIssue({
               module,
@@ -309,6 +311,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
       }
       case "ExportAllDeclaration": {
         // export * from ...;
+        /* istanbul ignore next: The parser should have caught this and thrown. */
         if (typeof node.source.value != "string") {
           module.addIssue({
             module,
