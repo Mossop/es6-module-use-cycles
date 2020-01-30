@@ -1,11 +1,14 @@
 import path from "path";
 
+import { Linter } from "eslint";
+import { ScopeManager } from "eslint-scope";
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
 
 import { EnvironmentRecord } from "./environment";
 import { ModuleHost } from "./host";
 import { assert, internalError, IssueType, Issue } from "./issue";
+import { parseCode, importEntries, exportEntries, findImportUsage } from "./parser";
 
 // This is all mostly based on the ES spec: https://tc39.es/ecma262/#sec-modules
 // Plus some additions for better reporting.
@@ -274,6 +277,58 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     modulePath: string
   ) {
     super(host.workingDirectory, host, modulePath);
+  }
+
+  private analyseImports(scopeManager: ScopeManager): void {
+    for (let importEntry of this.importEntries) {
+      findImportUsage(scopeManager, importEntry);
+    }
+  }
+
+  public parseCode(code: string, parserId: string, options: Linter.ParserOptions | undefined): void {
+    let { program, scopeManager } = parseCode(code, parserId, options);
+
+    // https://tc39.es/ecma262/#sec-parsemodule
+
+    // Steps 4-6.
+    for (let importEntry of importEntries(this, program)) {
+      this.importEntries.push(importEntry);
+    }
+
+    // Steps 10-11.
+    for (let exportEntry of exportEntries(this, program)) {
+      if (exportEntry.moduleRequest == null) {
+        if (!exportEntry.localName) {
+          internalError("An export with no module specifier must have a local name.");
+        }
+
+        let importEntry = this.getImportEntry(exportEntry.localName);
+        if (!importEntry) {
+          this.localExportEntries.push(new LocalExportEntry(this, exportEntry));
+        } else {
+          if (importEntry.importName == "*") {
+            this.localExportEntries.push(new LocalExportEntry(this, exportEntry));
+          } else {
+            this.indirectExportEntries.push(new IndirectExportEntry(this, {
+              node: exportEntry.node,
+              declaration: exportEntry.declaration,
+              moduleRequest: importEntry.moduleRequest,
+              importName: importEntry.importName,
+              localName: null,
+              exportName: exportEntry.exportName,
+            }));
+          }
+        }
+      } else {
+        if (exportEntry.importName == "*" && exportEntry.exportName == null) {
+          this.starExportEntries.push(new StarExportEntry(this, exportEntry));
+        } else {
+          this.indirectExportEntries.push(new IndirectExportEntry(this, exportEntry));
+        }
+      }
+    }
+
+    this.analyseImports(scopeManager);
   }
 
   protected namespaceCreate(names: string[]): ModuleNamespace {

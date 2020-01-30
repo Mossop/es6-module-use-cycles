@@ -1,10 +1,10 @@
-import { Rule, Scope } from "eslint";
+import { Linter } from "eslint";
+import { analyze, ScopeManager, Variable, Scope, AnalysisOptions } from "eslint-scope";
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
 
-import { IssueError, IssueType, internalError, assert, internalWarning } from "./issue";
-import { SourceTextModuleRecord, ImportEntry, LocalExportEntry, IndirectExportEntry,
-  ExportEntry, StarExportEntry, CyclicModuleRecord } from "./modulerecord";
+import { IssueType, assert, internalWarning } from "./issue";
+import { SourceTextModuleRecord, ImportEntry, ExportEntry, CyclicModuleRecord } from "./modulerecord";
 
 type Parented<T> = T & { parent: ESTree.Node };
 
@@ -12,7 +12,85 @@ function isParented<T>(node: T): node is Parented<T> {
   return "parent" in node;
 }
 
-function* importEntries(module: CyclicModuleRecord, program: ESTree.Program): Iterable<ImportEntry> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isNode(item: any): item is ESTree.Node {
+  return item && (typeof item == "object") && (typeof item.type == "string");
+}
+
+function addParents(node: ESTree.Node): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function handleMaybeNode(item: any): void {
+    if (isNode(item)) {
+      Object.defineProperty(item, "parent", {
+        enumerable: false,
+        writable: false,
+        value: node,
+      });
+
+      addParents(item);
+    }
+  }
+
+  for (let property of Object.values(node)) {
+    if (Array.isArray(property)) {
+      property.forEach(handleMaybeNode);
+    } else {
+      handleMaybeNode(property);
+    }
+  }
+}
+
+interface ParseResults {
+  program: ESTree.Program;
+  scopeManager: ScopeManager;
+}
+
+type ParserModule =
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  { parse(text: string, options?: any): ESTree.Program } |
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  { parseForESLint(text: string, options?: any): ESLintParseResult };
+
+interface ESLintParseResult {
+  ast: ESTree.Program;
+  scopeManager?: ScopeManager;
+}
+
+export function parseCode(code: string, parserId: string, options: Linter.ParserOptions = {}): ParseResults {
+  function buildScopeManager(program: ESTree.Program): ScopeManager {
+    let analysisOptions: AnalysisOptions = {
+      ecmaVersion: options.ecmaVersion || 6,
+      sourceType: options.sourceType || "module",
+    };
+
+    return analyze(program, analysisOptions);
+  }
+
+  let parserOptions = Object.assign({
+    range: true,
+    loc: true,
+  }, options);
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  let parser = require(parserId) as ParserModule;
+  if ("parse" in parser) {
+    let program = parser.parse(code, parserOptions);
+    addParents(program);
+    return {
+      program,
+      scopeManager: buildScopeManager(program),
+    };
+  }
+
+  let { ast: program, scopeManager } = parser.parseForESLint(code, parserOptions);
+  addParents(program);
+  return {
+    program,
+    scopeManager: scopeManager || buildScopeManager(program),
+  };
+}
+
+export function* importEntries(module: CyclicModuleRecord, program: ESTree.Program): Iterable<ImportEntry> {
   for (let node of program.body) {
     switch (node.type) {
       case "ImportDeclaration": {
@@ -98,7 +176,7 @@ function* importEntries(module: CyclicModuleRecord, program: ESTree.Program): It
  *     export default `ClassDeclaration`;
  *     export default `AssignmentExpression`
  */
-function* exportEntries(module: SourceTextModuleRecord, program: ESTree.Program): Iterable<ExportEntry> {
+export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.Program): Iterable<ExportEntry> {
   for (let node of program.body) {
     switch (node.type) {
       case "ExportNamedDeclaration": {
@@ -275,10 +353,10 @@ function* exportEntries(module: SourceTextModuleRecord, program: ESTree.Program)
   }
 }
 
-function isFunctionVariableUsedInGlobalPath(context: Rule.RuleContext, variable: Scope.Variable): boolean {
+function isFunctionVariableUsedInGlobalPath(scopeManager: ScopeManager, variable: Variable): boolean {
   for (let reference of variable.references) {
     if (isParented(reference.identifier) && reference.identifier.parent.type == "CallExpression") {
-      if (isInGlobalPath(context, reference.from)) {
+      if (isInGlobalPath(scopeManager, reference.from)) {
         return true;
       }
     }
@@ -287,10 +365,9 @@ function isFunctionVariableUsedInGlobalPath(context: Rule.RuleContext, variable:
   return false;
 }
 
-function isInGlobalPath(context: Rule.RuleContext, scope: Scope.Scope | null): boolean {
+export function isInGlobalPath(scopeManager: ScopeManager, scope: Scope | null): boolean {
   while (scope) {
     if (scope.type == "class") {
-      console.log("Used in class");
       return false;
     }
 
@@ -303,8 +380,8 @@ function isInGlobalPath(context: Rule.RuleContext, scope: Scope.Scope | null): b
         }
 
         // Get the variable for the function and see if it is ever called.
-        let variable = context.getDeclaredVariables(scope.block)[0];
-        return isFunctionVariableUsedInGlobalPath(context, variable);
+        let variable = scopeManager.getDeclaredVariables(scope.block)[0];
+        return isFunctionVariableUsedInGlobalPath(scopeManager, variable);
       }
 
       if (scope.block.type == "ArrowFunctionExpression") {
@@ -312,15 +389,15 @@ function isInGlobalPath(context: Rule.RuleContext, scope: Scope.Scope | null): b
           return false;
         }
 
-        let variables = context.getDeclaredVariables(scope.block.parent);
+        let variables = scopeManager.getDeclaredVariables(scope.block.parent);
         if (variables.length > 0) {
-          return isFunctionVariableUsedInGlobalPath(context, variables[0]);
+          return isFunctionVariableUsedInGlobalPath(scopeManager, variables[0]);
         }
 
         return false;
       }
 
-      console.warn(`Used in unknown function block ${scope.block.type}.`);
+      internalWarning(`Used in unknown function block ${scope.block.type}.`);
       return false;
     }
 
@@ -338,8 +415,8 @@ function isInGlobalPath(context: Rule.RuleContext, scope: Scope.Scope | null): b
  * Attempts to find a case where this import entry is used during a module's
  * initial execution.
  */
-function findImportUsage(context: Rule.RuleContext, importEntry: ImportEntry): void {
-  let variables = context.getDeclaredVariables(importEntry.declaration);
+export function findImportUsage(scopeManager: ScopeManager, importEntry: ImportEntry): void {
+  let variables = scopeManager.getDeclaredVariables(importEntry.declaration);
   for (let variable of variables) {
     for (let reference of variable.references) {
       if (isParented(reference.identifier) && reference.identifier.parent.type == "ExportSpecifier") {
@@ -347,80 +424,9 @@ function findImportUsage(context: Rule.RuleContext, importEntry: ImportEntry): v
         continue;
       }
 
-      if (isInGlobalPath(context, reference.from)) {
+      if (isInGlobalPath(scopeManager, reference.from)) {
         importEntry.executionUse = reference.identifier;
       }
     }
   }
-
-}
-
-export function createParser(module: SourceTextModuleRecord, context: Rule.RuleContext): Rule.RuleListener {
-  return {
-    "Program": (program: Parented<ESTree.Program>): void => {
-      try {
-        // https://tc39.es/ecma262/#sec-parsemodule
-
-        // Steps 4-6.
-        for (let importEntry of importEntries(module, program)) {
-          // Filter out any unknown modules.
-          if (importEntry.moduleRequest.startsWith(".")) {
-            try {
-              module.host.resolveModule(module, importEntry.moduleRequest);
-            } catch (e) {
-              if (e instanceof IssueError) {
-                module.addIssue(e.issue);
-                continue;
-              }
-
-              throw e;
-            }
-          }
-
-          module.importEntries.push(importEntry);
-
-          findImportUsage(context, importEntry);
-        }
-
-        // Steps 10-11.
-        for (let exportEntry of exportEntries(module, program)) {
-          if (exportEntry.moduleRequest == null) {
-            if (!exportEntry.localName) {
-              internalError("An export with no module specifier must have a local name.");
-            }
-
-            let importEntry = module.getImportEntry(exportEntry.localName);
-            if (!importEntry) {
-              module.localExportEntries.push(new LocalExportEntry(module, exportEntry));
-            } else {
-              if (importEntry.importName == "*") {
-                module.localExportEntries.push(new LocalExportEntry(module, exportEntry));
-              } else {
-                module.indirectExportEntries.push(new IndirectExportEntry(module, {
-                  node: exportEntry.node,
-                  declaration: exportEntry.declaration,
-                  moduleRequest: importEntry.moduleRequest,
-                  importName: importEntry.importName,
-                  localName: null,
-                  exportName: exportEntry.exportName,
-                }));
-              }
-            }
-          } else {
-            if (exportEntry.importName == "*" && exportEntry.exportName == null) {
-              module.starExportEntries.push(new StarExportEntry(module, exportEntry));
-            } else {
-              module.indirectExportEntries.push(new IndirectExportEntry(module, exportEntry));
-            }
-          }
-        }
-      } catch (exc) {
-        if (exc instanceof IssueError) {
-          module.addIssue(exc.issue);
-        } else {
-          throw exc;
-        }
-      }
-    },
-  };
 }

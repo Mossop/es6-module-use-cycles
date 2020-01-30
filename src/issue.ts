@@ -150,12 +150,6 @@ export function intoLintResults(issues: Issue[]): CLIEngine.LintResult[] {
   return results;
 }
 
-export class IssueError extends Error {
-  public constructor(public readonly issue: Issue) {
-    super(issue.message);
-  }
-}
-
 export function assert(check: boolean, algorithm: string, part: string, module: CyclicModuleRecord): void {
   /* istanbul ignore else: We should be unable to trigger assertions in tests. */
   if (check) {

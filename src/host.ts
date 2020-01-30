@@ -1,14 +1,11 @@
 import fs from "fs";
 import path from "path";
 
-import { Linter, Rule, CLIEngine } from "eslint";
-// eslint-disable-next-line import/no-unresolved
-import * as ESTree from "estree";
+import { CLIEngine } from "eslint";
 import resolve from "resolve";
 
-import { Issue, IssueType } from "./issue";
+import { Issue } from "./issue";
 import { SourceTextModuleRecord, CyclicModuleRecord, ExternalModuleRecord } from "./modulerecord";
-import { createParser } from "./parser";
 
 export class ModuleHost {
   private readonly engine: CLIEngine;
@@ -90,65 +87,10 @@ export class ModuleHost {
 
   public parseModule(sourceText: string, modulePath: string): SourceTextModuleRecord {
     let module: SourceTextModuleRecord = new SourceTextModuleRecord(this, modulePath);
+    this.moduleRecords.set(modulePath, module);
 
     let config = this.engine.getConfigForFile(modulePath);
-    config.plugins = [];
-    config.rules = {
-      "module-parse": "error",
-    };
-
-    // The types for Linter don't seem to be correct.
-    // @ts-ignore
-    let linter = new Linter({ cwd: this.workingDirectory });
-    linter.defineRule("module-parse", {
-      create: (context: Rule.RuleContext): Rule.RuleListener => {
-        return {
-          Program: (node: ESTree.Program): void => {
-            this.moduleRecords.set(modulePath, module);
-
-            let parser = createParser(module, context);
-            for (let [selector, callback] of Object.entries(parser)) {
-              if (callback && selector != "Program") {
-                this[selector] = callback.bind(parser);
-              }
-            }
-
-            if (parser.Program) {
-              parser.Program(node);
-            }
-          }
-        };
-      }
-    });
-
-    if (config.parser) {
-      // For some reason Linter can't resolve the parser correctly, resolve it ourselves.
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      let parser = require(config.parser);
-      config.parser = "resolved-parser";
-      linter.defineParser("resolved-parser", parser);
-    }
-
-    // Run from the right directory so eslint can find its modules.
-    let cwd = process.cwd();
-    process.chdir(this.workingDirectory);
-    let lintMessages = linter.verify(sourceText, config, {
-      filename: path.relative(this.workingDirectory, modulePath),
-      allowInlineConfig: false,
-    });
-    process.chdir(cwd);
-
-    for (let lintMessage of lintMessages) {
-      module.addIssue({
-        severity: lintMessage.severity,
-        module,
-        message: lintMessage.message,
-        type: IssueType.EslintIssue,
-        lintMessage,
-        node: null,
-      });
-    }
-
+    module.parseCode(sourceText, config.parser || "espree", config.parserOptions);
     return module;
   }
 }
