@@ -5,13 +5,39 @@ import { IssueType } from "../src/issue";
 import { getExample, testableIssues } from "./helpers/utils";
 
 const example = getExample();
+const host = new ModuleHost([".js"], example);
+host.parseEntrypoint(path.join(example, "entry.js"));
 
 test("Cycles detected from various usages.", () => {
-  let host = new ModuleHost([".js"], example);
-  host.parseEntrypoint(path.join(example, "entry.js"));
-
   let issues = testableIssues(host.getIssues());
   expect(issues).toStrictEqual([
+    expect.objectContaining({
+      type: IssueType.ImportCycle,
+      modulePath: "functioncycle.js",
+      nodeType: "ImportDeclaration",
+      location: {
+        start: {
+          line: 1,
+          column: 0,
+        },
+        end: {
+          line: 1,
+          column: 41,
+        },
+      },
+      message: "Import cycle: entry.js -> functioncycle.js -> entry.js",
+      stack: [
+        expect.objectContaining({
+          relativePath: "entry.js",
+        }),
+        expect.objectContaining({
+          relativePath: "functioncycle.js",
+        }),
+        expect.objectContaining({
+          relativePath: "entry.js",
+        }),
+      ]
+    }),
     expect.objectContaining({
       type: IssueType.ImportCycle,
       modulePath: "indirectCycle.js",
@@ -101,5 +127,17 @@ test("Cycles detected from various usages.", () => {
       },
       message: "Import 'indirect' is used before 'entry.js' has been evaluated.",
     }),
+  ]);
+});
+
+test("Correct filename list.", () => {
+  let filenames = host.getFilenames().map((filename: string): string => path.relative(example, filename));
+  filenames.sort();
+  expect(filenames).toStrictEqual([
+    "entry.js",
+    "functioncycle.js",
+    "indirect.js",
+    "indirectCycle.js",
+    "module.js",
   ]);
 });

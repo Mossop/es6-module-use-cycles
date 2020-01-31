@@ -36,18 +36,10 @@ function getPosition(node: ESTree.Node | null): Position {
 }
 
 function getSeverity(issue: Issue): Severity {
-  if (issue.type == IssueType.EslintIssue) {
-    return issue.severity;
-  }
-
   return issue.type == IssueType.ImportCycle ? Severity.Warning : Severity.Error;
 }
 
 export function buildLintMessage(issue: Issue): Linter.LintMessage {
-  if (issue.type == IssueType.EslintIssue) {
-    return issue.lintMessage;
-  }
-
   return {
     ruleId: issue.type,
     message: issue.message,
@@ -61,7 +53,6 @@ export enum IssueType {
   ImportCycle = "import-cycle",
   Assertion = "assertion",
   InternalError = "internal-error",
-  EslintIssue = "eslint",
   ImportError = "import-error",
   ExportError = "export-error",
   UseBeforeExecution = "use-before-execution",
@@ -98,18 +89,12 @@ export interface InternalError extends BaseIssue {
   message: string;
 }
 
-export interface EslintIssue extends BaseIssue {
-  type: IssueType.EslintIssue;
-  severity: Severity;
-  lintMessage: Linter.LintMessage;
-}
-
 export interface UseBeforeExecutionIssue extends BaseIssue {
   type: IssueType.UseBeforeExecution;
   importEntry: ImportEntry;
 }
 
-export type Issue = EslintIssue | Assertion | InternalError | ImportError | ExportError | ImportCycle | UseBeforeExecutionIssue;
+export type Issue = Assertion | InternalError | ImportError | ExportError | ImportCycle | UseBeforeExecutionIssue;
 
 export function intoLintResults(issues: Issue[]): CLIEngine.LintResult[] {
   let results: CLIEngine.LintResult[] = [];

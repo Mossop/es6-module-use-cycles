@@ -13,4 +13,30 @@ function check() {
 const dotest = () => check();
 dotest();
 
+class Cls {
+  constructor() {
+    check();
+  }
+
+  a() {
+    check();
+  }
+
+  b() {
+    check();
+  }
+
+  static sa() {
+    check();
+  }
+
+  static sb() {
+    check();
+  }
+}
+
+Cls.sa();
+let cls = new Cls();
+cls.a();
+
 export const makeCycle = 42;

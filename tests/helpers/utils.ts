@@ -21,7 +21,7 @@ export function getExample(): string {
   return path.join(path.dirname(parent), "examples", name);
 }
 
-export function testableIssues(issues: Issue[]): TestableIssue[] {
+export function testableIssues([...issues]: Issue[]): TestableIssue[] {
   issues.sort((a: Issue, b: Issue): number => {
     if (a.module != b.module) {
       return a.module.modulePath.localeCompare(b.module.modulePath);
@@ -74,7 +74,7 @@ export function testableIssues(issues: Issue[]): TestableIssue[] {
   });
 
   return issues.map((issue: Issue): TestableIssue => {
-    return Object.assign(issue, {
+    return Object.assign({}, issue, {
       modulePath: issue.module.relativePath,
       nodeType: issue.node ? issue.node.type : null,
       location: issue.node ? issue.node.loc || null : null,

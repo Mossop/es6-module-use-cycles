@@ -5,11 +5,10 @@ import { IssueType } from "../src/issue";
 import { getExample, testableIssues } from "./helpers/utils";
 
 const example = getExample();
+const host = new ModuleHost([".js"], example);
+host.parseEntrypoint(path.join(example, "entry.js"));
 
 test("No errors.", () => {
-  let host = new ModuleHost([".js"], example);
-  host.parseEntrypoint(path.join(example, "entry.js"));
-
   let issues = testableIssues(host.getIssues());
   expect(issues).toStrictEqual([
     expect.objectContaining({
@@ -63,5 +62,13 @@ test("No errors.", () => {
       message: "Unable to locate module for specifier './biz'.",
       specifier: "./biz",
     }),
+  ]);
+});
+
+test("Correct filename list.", () => {
+  let filenames = host.getFilenames().map((filename: string): string => path.relative(example, filename));
+  filenames.sort();
+  expect(filenames).toStrictEqual([
+    "entry.js",
   ]);
 });

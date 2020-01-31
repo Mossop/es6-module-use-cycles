@@ -5,11 +5,10 @@ import { IssueType } from "../src/issue";
 import { getExample, testableIssues } from "./helpers/utils";
 
 const example = getExample();
+const host = new ModuleHost([".js"], example);
+host.parseEntrypoint(path.join(example, "a.js"));
 
 test("Safe cycle detected.", () => {
-  let host = new ModuleHost([".js"], example);
-  host.parseEntrypoint(path.join(example, "a.js"));
-
   let issues = testableIssues(host.getIssues());
   expect(issues).toStrictEqual([
     expect.objectContaining({
@@ -39,6 +38,15 @@ test("Safe cycle detected.", () => {
         }),
       ]
     }),
+  ]);
+});
+
+test("Correct filename list.", () => {
+  let filenames = host.getFilenames().map((filename: string): string => path.relative(example, filename));
+  filenames.sort();
+  expect(filenames).toStrictEqual([
+    "a.js",
+    "b.js",
   ]);
 });
 

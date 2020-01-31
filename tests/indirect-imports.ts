@@ -5,11 +5,10 @@ import { IssueType, intoLintResults, Severity, buildLintMessage } from "../src/i
 import { getExample, testableIssues } from "./helpers/utils";
 
 const example = getExample();
+const host = new ModuleHost([".js"], example);
+host.parseEntrypoint(path.join(example, "entry.js"));
 
 test("Cycles detected in more complex import/export scenarios.", () => {
-  let host = new ModuleHost([".js"], example);
-  host.parseEntrypoint(path.join(example, "entry.js"));
-
   let issues = testableIssues(host.getIssues());
   expect(issues).toStrictEqual([
     expect.objectContaining({
@@ -135,10 +134,20 @@ test("Cycles detected in more complex import/export scenarios.", () => {
   ]);
 });
 
-test("Lint results", () => {
-  let host = new ModuleHost([".js"], example);
-  host.parseEntrypoint(path.join(example, "entry.js"));
+test("Correct filename list.", () => {
+  let filenames = host.getFilenames().map((filename: string): string => path.relative(example, filename));
+  filenames.sort();
+  expect(filenames).toStrictEqual([
+    "direct.js",
+    "entry.js",
+    "module.js",
+    "namedExport.js",
+    "starExport.js",
+    "starImported.js",
+  ]);
+});
 
+test("Lint results", () => {
   let issues = host.getIssues();
   expect(issues).toHaveLength(4);
 
