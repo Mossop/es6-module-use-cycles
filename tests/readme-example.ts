@@ -97,7 +97,7 @@ test("Unsafe cycle detected.", () => {
           column: 15,
         },
       },
-      message: "Import 'add' is used before 'b.js' has been evaluated.",
+      message: "Imported 'add' is used before 'b.js' has been evaluated.",
     }),
   ]);
 });

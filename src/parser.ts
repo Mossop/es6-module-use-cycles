@@ -3,12 +3,12 @@ import { analyze, ScopeManager, Variable, Scope, AnalysisOptions } from "eslint-
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
 
-import { IssueType, assert, internalWarning } from "./issue";
-import { SourceTextModuleRecord, ImportEntry, ExportEntry, CyclicModuleRecord } from "./modulerecord";
+import { IssueType, assert, internalWarning, internalError } from "./issue";
+import { SourceTextModuleRecord, ImportEntry, ExportEntry, CyclicModuleRecord, LocalExportEntry } from "./modulerecord";
 
 type Parented<T> = T & { parent: ESTree.Node };
 
-function isParented<T>(node: T): node is Parented<T> {
+export function isParented<T>(node: T): node is Parented<T> {
   return "parent" in node;
 }
 
@@ -90,7 +90,7 @@ export function parseCode(code: string, parserId: string, options: Linter.Parser
   };
 }
 
-export function* importEntries(module: CyclicModuleRecord, program: ESTree.Program): Iterable<ImportEntry> {
+export function* importEntries(module: CyclicModuleRecord, program: ESTree.Program, scopeManager: ScopeManager): Iterable<ImportEntry> {
   for (let node of program.body) {
     switch (node.type) {
       case "ImportDeclaration": {
@@ -125,6 +125,11 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
         }
 
         for (let specifier of node.specifiers) {
+          let variables = scopeManager.getDeclaredVariables(specifier);
+          if (variables.length != 1) {
+            internalError(`Found no variable for a ${specifier.type} for ${moduleSpecifier}`);
+          }
+
           switch (specifier.type) {
             case "ImportSpecifier":
               yield new ImportEntry(
@@ -133,6 +138,7 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
                 moduleSpecifier,
                 specifier.imported.name,
                 specifier.local.name,
+                variables[0],
               );
               break;
             case "ImportDefaultSpecifier":
@@ -142,6 +148,7 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
                 moduleSpecifier,
                 "default",
                 specifier.local.name,
+                variables[0],
               );
               break;
             case "ImportNamespaceSpecifier":
@@ -151,6 +158,7 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
                 moduleSpecifier,
                 "*",
                 specifier.local.name,
+                variables[0],
               );
               break;
           }
@@ -177,7 +185,7 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
  *     export default `ClassDeclaration`;
  *     export default `AssignmentExpression`
  */
-export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.Program): Iterable<ExportEntry> {
+export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.Program, scopeManager: ScopeManager): Iterable<ExportEntry> {
   for (let node of program.body) {
     switch (node.type) {
       case "ExportNamedDeclaration": {
@@ -228,6 +236,11 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
           if (node.declaration.type == "VariableDeclaration") {
             for (let varDeclarator of node.declaration.declarations) {
               if (varDeclarator.id.type == "Identifier") {
+                let variables = scopeManager.getDeclaredVariables(varDeclarator);
+                if (variables.length != 1) {
+                  console.warn(`Saw ${variables.length} variables from Identifier`);
+                }
+
                 // Easy case, `var foo = bar;`
                 yield {
                   node: varDeclarator,
@@ -236,6 +249,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
                   moduleRequest: moduleSpecifier,
                   importName: null,
                   localName: varDeclarator.id.name,
+                  variable: variables.length > 0 ? variables[0] : null,
                 };
               } else if (varDeclarator.id.type == "ObjectPattern") {
                 // Object destructuring, `var { a, b: c } = foo;
@@ -245,6 +259,11 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
                     continue;
                   }
 
+                  let variables = scopeManager.getDeclaredVariables(varDeclarator);
+                  if (variables.length != 1) {
+                    console.warn(`Saw ${variables.length} variables from property Identifier`);
+                  }
+
                   yield {
                     node: prop,
                     declaration: node,
@@ -252,6 +271,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
                     moduleRequest: moduleSpecifier,
                     importName: null,
                     localName: prop.key.name,
+                    variable: variables.length > 0 ? variables[0] : null,
                   };
                 }
               } else {
@@ -261,6 +281,11 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
             }
           } else if (node.declaration.id) {
             // function or class declaration.
+            let variables = scopeManager.getDeclaredVariables(node.declaration);
+            if (variables.length != 1) {
+              console.warn(`Saw ${variables.length} variables from property ${node.declaration.id}`);
+            }
+
             yield {
               node: node.declaration,
               declaration: node,
@@ -268,6 +293,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
               moduleRequest: moduleSpecifier,
               importName: null,
               localName: node.declaration.id.name,
+              variable: variables.length > 0 ? variables[0] : null,
             };
           }
 
@@ -282,8 +308,12 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
                 moduleRequest: moduleSpecifier,
                 importName: specifier.local.name,
                 localName: null,
+                variable: null,
               };
             } else {
+              let scope = scopeManager.acquire(program, true);
+              let variable = scope && scope.set.get(specifier.local.name) || null;
+
               yield {
                 node: specifier,
                 declaration: node,
@@ -291,6 +321,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
                 moduleRequest: moduleSpecifier,
                 importName: null,
                 localName: specifier.local.name,
+                variable,
               };
             }
           }
@@ -306,6 +337,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
           moduleRequest: null,
           importName: null,
           localName: "*default*",
+          variable: null,
         };
         break;
       }
@@ -349,6 +381,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
           moduleRequest: moduleSpecifier,
           importName: "*",
           localName: null,
+          variable: null,
         };
         break;
       }
@@ -366,6 +399,72 @@ function isFunctionVariableUsedInGlobalPath(scopeManager: ScopeManager, variable
   }
 
   return false;
+}
+
+const BASE_SCOPES = ["class", "function", "global"];
+
+export function getBaseScope(scope: Scope): Scope {
+  while (!BASE_SCOPES.includes(scope.type)) {
+    if (!scope.upper) {
+      console.warn(`Found a ${scope.type} with no upper scope.`);
+      return scope;
+    }
+    scope = scope.upper;
+  }
+
+  return scope;
+}
+
+// Gets the variable for the function that creates this scope.
+export function getFunctionVariable(module: SourceTextModuleRecord, scopeManager: ScopeManager, scope: Scope): Variable | LocalExportEntry | null {
+  if (scope.type != "function") {
+    internalError(`Attempt to use ${scope.type} as a function scope.`);
+  }
+
+  switch (scope.block.type) {
+    case "FunctionDeclaration": {
+      let id = scope.block.id;
+      if (!id) {
+        // Part of an `export default function...`, no variable.
+        let exportEntry = module.defaultExport;
+        if (!exportEntry || !isParented(scope.block) || scope.block.parent != exportEntry.declaration) {
+          internalError("Found a function declaration with no name but not as part of a default export.");
+        }
+
+        return exportEntry;
+      }
+
+      let variables = scopeManager.getDeclaredVariables(scope.block);
+      if (variables.length == 0) {
+        return null;
+      }
+      return variables[0];
+    }
+    case "ArrowFunctionExpression":
+    case "FunctionExpression": {
+      if (!isParented(scope.block)) {
+        return null;
+      }
+
+      if (scope.block.parent.type != "VariableDeclarator") {
+        return null;
+      }
+
+      let variables = scopeManager.getDeclaredVariables(scope.block.parent);
+      if (variables.length == 0) {
+        console.warn("Found no variable from a VariableDeclarator.");
+        return null;
+      } else if (variables.length == 1) {
+        return variables[0];
+      }
+
+      console.warn(`Found ${variables.length} variables for this variable declaration.`);
+      return null;
+    }
+    default:
+      console.warn(`Attempting to get function for unknown type ${scope.block.type}`);
+      return null;
+  }
 }
 
 export function isInGlobalPath(scopeManager: ScopeManager, scope: Scope | null): boolean {
@@ -418,18 +517,19 @@ export function isInGlobalPath(scopeManager: ScopeManager, scope: Scope | null):
  * Attempts to find a case where this import entry is used during a module's
  * initial execution.
  */
-export function findImportUsage(scopeManager: ScopeManager, importEntry: ImportEntry): void {
-  let variables = scopeManager.getDeclaredVariables(importEntry.node);
-  for (let variable of variables) {
-    for (let reference of variable.references) {
-      if (isParented(reference.identifier) && reference.identifier.parent.type == "ExportSpecifier") {
-        // Simply exporting the import does not count as usage.
-        continue;
-      }
+// export function findImportUsage(scopeManager: ScopeManager, importEntry: ImportEntry): void {
+//   let variables = scopeManager.getDeclaredVariables(importEntry.node);
+//   for (let variable of variables) {
+//     for (let reference of variable.references) {
+//       if (isParented(reference.identifier) && reference.identifier.parent.type == "ExportSpecifier") {
+//         // Simply exporting the import does not count as usage since it will get
+//         // resolved directly to the imported module.
+//         continue;
+//       }
 
-      if (isInGlobalPath(scopeManager, reference.from)) {
-        importEntry.executionUse.push(reference.identifier);
-      }
-    }
-  }
-}
+//       if (isInGlobalPath(scopeManager, reference.from)) {
+//         importEntry.executionUse.push(reference.identifier);
+//       }
+//     }
+//   }
+// }

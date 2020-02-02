@@ -7,7 +7,6 @@ import { getExample, testableIssues } from "./helpers/utils";
 const example = getExample();
 const host = new ModuleHost([".js"], example);
 host.parseEntrypoint(path.join(example, "entry.js"));
-
 test("No errors.", () => {
   let issues = testableIssues(host.getIssues());
   expect(issues).toStrictEqual([

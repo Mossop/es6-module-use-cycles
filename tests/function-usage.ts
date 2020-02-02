@@ -44,15 +44,16 @@ test("Cycles when used inside a function.", () => {
       nodeType: "Identifier",
       location: {
         start: {
-          line: 4,
-          column: 9,
+          line: 7,
+          column: 15,
         },
         end: {
-          line: 4,
-          column: 19,
+          line: 7,
+          column: 20,
         },
       },
-      message: "Import 'buildStore' is used before 'entry.js' has been evaluated.",
+      message: `Calling 'check' will fail due to an import cycle:
+  calling 'check' from 'module.js' uses imported 'buildStore' before 'entry.js' has been evaluated.`,
     }),
   ]);
 });

@@ -12,6 +12,24 @@ test("Cycles detected from various usages.", () => {
   let issues = testableIssues(host.getIssues());
   expect(issues).toStrictEqual([
     expect.objectContaining({
+      type: IssueType.UseBeforeExecution,
+      modulePath: "entry.js",
+      nodeType: "Identifier",
+      location: {
+        start: {
+          line: 5,
+          column: 0,
+        },
+        end: {
+          line: 5,
+          column: 6,
+        },
+      },
+      message: `Calling 'callme' will fail due to an import cycle:
+  calling 'callme' from 'entry.js' is calling 'callme' exported from 'functioncycle.js'.
+  calling 'callme' from 'functioncycle.js' uses imported 'unavailable' before 'entry.js' has been evaluated.`,
+    }),
+    expect.objectContaining({
       type: IssueType.ImportCycle,
       modulePath: "functioncycle.js",
       nodeType: "ImportDeclaration",
@@ -101,15 +119,16 @@ test("Cycles detected from various usages.", () => {
       nodeType: "Identifier",
       location: {
         start: {
-          line: 5,
-          column: 9,
+          line: 7,
+          column: 0,
         },
         end: {
-          line: 5,
-          column: 20,
+          line: 7,
+          column: 4,
         },
       },
-      message: "Import 'unavailable' is used before 'entry.js' has been evaluated.",
+      message: `Calling 'test' will fail due to an import cycle:
+  calling 'test' from 'module.js' uses imported 'unavailable' before 'entry.js' has been evaluated.`,
     }),
     expect.objectContaining({
       type: IssueType.UseBeforeExecution,
@@ -117,15 +136,17 @@ test("Cycles detected from various usages.", () => {
       nodeType: "Identifier",
       location: {
         start: {
-          line: 10,
-          column: 25,
+          line: 14,
+          column: 0,
         },
         end: {
-          line: 10,
-          column: 33,
+          line: 14,
+          column: 6,
         },
       },
-      message: "Import 'indirect' is used before 'entry.js' has been evaluated.",
+      message: `Calling 'dotest' will fail due to an import cycle:
+  calling 'dotest' from 'module.js' calls 'check'.
+  calling 'check' from 'module.js' uses imported 'indirect' before 'entry.js' has been evaluated.`,
     }),
   ]);
 });

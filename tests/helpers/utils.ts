@@ -9,6 +9,8 @@ type TestableIssue = Omit<Issue, "module" | "node"> & {
   modulePath: string;
   nodeType: string | null;
   location: ESTree.SourceLocation | null;
+  module?: null;
+  node?: null;
 };
 
 export function getExample(): string {
@@ -74,12 +76,16 @@ export function testableIssues([...issues]: Issue[]): TestableIssue[] {
   });
 
   return issues.map((issue: Issue): TestableIssue => {
-    return Object.assign({}, issue, {
+    let testable: TestableIssue = Object.assign({}, issue, {
       modulePath: issue.module.relativePath,
       nodeType: issue.node ? issue.node.type : null,
       location: issue.node ? issue.node.loc || null : null,
       node: null,
       module: null,
-    }, issue);
+    });
+
+    delete testable.node;
+    delete testable.module;
+    return testable;
   });
 }

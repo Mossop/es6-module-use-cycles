@@ -52,7 +52,7 @@ test("Cycles detected when using an import in ther global scope.", () => {
           column: 25,
         },
       },
-      message: "Import 'buildStore' is used before 'entry.js' has been evaluated.",
+      message: "Imported 'buildStore' is used before 'entry.js' has been evaluated.",
     }),
   ]);
 });
