@@ -5,10 +5,11 @@ import { Variable, ScopeManager } from "eslint-scope";
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
 
+import { algorithmAssert, internalError, checkParented} from "./assert";
 import { EnvironmentRecord } from "./environment";
 import { ModuleHost } from "./host";
-import { assert, internalError, IssueType, Issue } from "./issue";
-import { parseCode, importEntries, exportEntries, isParented, getBaseScope, getFunctionVariable } from "./parser";
+import { IssueType, Issue } from "./issue";
+import { parseCode, importEntries, exportEntries, getBaseScope, getFunctionVariable } from "./parser";
 
 // This is all mostly based on the ES spec: https://tc39.es/ecma262/#sec-modules
 // Plus some additions for better reporting.
@@ -97,10 +98,12 @@ export class LocalExportEntry implements ExportEntry {
   public cycleIssues: CycleIssue[] = [];
 
   public constructor(public readonly module: CyclicModuleRecord, entry: ExportEntry) {
+    /* istanbul ignore if: We should be unable to trigger assertions in tests. */
     if (entry.moduleRequest || entry.importName || !entry.exportName || !entry.localName) {
       internalError(`Invalid attempt to use an ExportEntry as a LocalExportEntry: ${JSON.stringify(exportEntryToJSON(entry))}`);
     }
 
+    /* istanbul ignore if: We should be unable to trigger assertions in tests. */
     if (!entry.variable && entry.localName != "*default*") {
       internalError(`Invalid attempt to use an ExportEntry as a LocalExportEntry: ${JSON.stringify(exportEntryToJSON(entry))}`);
     }
@@ -154,6 +157,7 @@ export class StarExportEntry implements ExportEntry {
   public readonly variable: null = null;
 
   public constructor(public readonly module: CyclicModuleRecord, entry: ExportEntry) {
+    /* istanbul ignore if: We should be unable to trigger assertions in tests. */
     if (!entry.moduleRequest || entry.importName != "*" || entry.exportName || entry.localName || entry.variable) {
       internalError(`Invalid attempt to use an ExportEntry as a StarExportEntry: ${JSON.stringify(exportEntryToJSON(entry))}`);
     }
@@ -231,7 +235,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
     let algorithm = "https://tc39.es/ecma262/#sec-modulenamespacecreate";
 
     // Step 2.
-    assert(
+    algorithmAssert(
       !this.namespace,
       algorithm,
       "2",
@@ -260,7 +264,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
     let algorithm = "https://tc39.es/ecma262/#sec-getmodulenamespace";
 
     // Step 2.
-    assert(
+    algorithmAssert(
       this.status != Status.unlinked,
       algorithm,
       "2",
@@ -292,6 +296,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
   public abstract getExportedNames(exportStarSet?: SourceTextModuleRecord[]): string[];
 
   public addIssue(issue: Issue): void {
+    /* istanbul ignore if: We should be unable to trigger assertions in tests. */
     if (issue.module != this) {
       internalError("Attempt to add an issue to the wrong module.");
     }
@@ -307,7 +312,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
     let algorithm = "https://tc39.es/ecma262/#sec-moduledeclarationlinking";
 
     // Step 2.
-    assert(
+    algorithmAssert(
       ![Status.linking, Status.evaluating].includes(this.status),
       algorithm,
       "2",
@@ -318,7 +323,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
     this.innerModuleLinking([], 0);
 
     // Steps 6-7.
-    assert(
+    algorithmAssert(
       [Status.linked, Status.evaluated].includes(this.status),
       algorithm,
       "6",
@@ -332,7 +337,7 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
     let algorithm = "https://tc39.es/ecma262/#sec-moduleevaluation";
 
     // Step 2.
-    assert(
+    algorithmAssert(
       [Status.linked, Status.evaluated].includes(this.status),
       algorithm,
       "2",
@@ -345,19 +350,19 @@ export abstract class CyclicModuleRecord extends ModuleRecord {
     this.innerModuleEvaluation(stack, executeStack, 0);
 
     // Steps 6-7.
-    assert(
+    algorithmAssert(
       this.status == Status.evaluated,
       algorithm,
       "6",
       this,
     );
-    assert(
+    algorithmAssert(
       stack.length == 0,
       algorithm,
       "7",
       this,
     );
-    assert(
+    algorithmAssert(
       executeStack.length == 0,
       algorithm,
       "7.x.1",
@@ -408,6 +413,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     // Steps 10-11.
     for (let exportEntry of exportEntries(this, program, scopeManager)) {
       if (exportEntry.moduleRequest == null) {
+        /* istanbul ignore if: We should be unable to trigger assertions in tests. */
         if (!exportEntry.localName) {
           internalError("An export with no module specifier must have a local name.");
         }
@@ -481,7 +487,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     }
 
     // Step 3.
-    assert(
+    algorithmAssert(
       this.status == Status.unlinked,
       algorithm,
       "3",
@@ -501,7 +507,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
       index = requiredModule.innerModuleLinking(stack, index);
 
-      assert(
+      algorithmAssert(
         [Status.linking, Status.linked, Status.evaluated].includes(requiredModule.status),
         algorithm,
         "9.c.i",
@@ -509,13 +515,14 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       );
 
       if (requiredModule.status == Status.linking) {
-        assert(
+        algorithmAssert(
           stack.includes(requiredModule),
           algorithm,
           "9.c.ii",
           this
         );
 
+        /* istanbul ignore if: This should always have been set by now. */
         if (typeof requiredModule.ancestorIndex != "number") {
           internalError("Expected ancestorIndex to have been set by now.");
         }
@@ -528,13 +535,13 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     this.initializeEnvironment();
 
     // Steps 11-12.
-    assert(
+    algorithmAssert(
       stack.filter((mod: CyclicModuleRecord) => mod === this).length == 1,
       algorithm,
       "11",
       this
     );
-    assert(
+    algorithmAssert(
       this.ancestorIndex <= this.index,
       algorithm,
       "12",
@@ -563,7 +570,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     if ([Status.evaluated, Status.evaluating].includes(this.status)) {
       return index;
     }
-    assert(
+    algorithmAssert(
       this.status == Status.linked,
       algorithm,
       "4",
@@ -584,7 +591,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
       index = requiredModule.innerModuleEvaluation(stack, executeStack, index);
 
-      assert(
+      algorithmAssert(
         [Status.evaluating, Status.evaluated].includes(requiredModule.status),
         algorithm,
         "10.d.i",
@@ -592,7 +599,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       );
 
       if (requiredModule.status == Status.evaluating) {
-        assert(
+        algorithmAssert(
           stack.includes(requiredModule),
           algorithm,
           "10.d.ii",
@@ -601,6 +608,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
         this.maybeReportImportCycle(executeStack, requiredModule, required);
 
+        /* istanbul ignore if: This should always have been set by now. */
         if (typeof requiredModule.ancestorIndex != "number") {
           internalError("Expected ancestorIndex to have been set by now.");
         }
@@ -611,7 +619,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
     // Step 11.
     this.executeModule();
-    assert(
+    algorithmAssert(
       executeStack.length > 0 && executeStack[executeStack.length - 1] == this,
       algorithm,
       "11.x.1",
@@ -621,13 +629,13 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     this.hasExecuted = true;
 
     // Steps 12-13.
-    assert(
+    algorithmAssert(
       stack.filter((mod: CyclicModuleRecord) => mod === this).length == 1,
       algorithm,
       "12",
       this
     );
-    assert(
+    algorithmAssert(
       this.ancestorIndex <= this.index,
       algorithm,
       "13",
@@ -861,6 +869,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
   private markFunctionVariableUnusable(importEntry: ImportEntry, functionVariable: Variable | LocalExportEntry,
     currentReason: string, issue: CycleIssue): void {
+    /* istanbul ignore if: This should always have been set by now. */
     if (!this.scopeManager) {
       internalError(`Executing module ${this.relativePath} before it has been parsed.`);
     }
@@ -884,8 +893,10 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       }
 
       for (let reference of functionVariable.references) {
+        checkParented(reference.identifier);
+
         // We only care about calls of this function.
-        if (!isParented(reference.identifier) || reference.identifier.parent.type != "CallExpression") {
+        if (reference.identifier.parent.type != "CallExpression") {
           continue;
         }
 
@@ -930,6 +941,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
   }
 
   protected executeModule(): void {
+    /* istanbul ignore if: This should always have been set by now. */
     if (!this.scopeManager) {
       internalError(`Executing module ${this.relativePath} before it has been parsed.`);
     }
@@ -944,7 +956,9 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       if (!exported.module.hasExecuted) {
         // This import is entirely unusable. See if it is used anywhere.
         for (let reference of importEntry.variable.references) {
-          if (isParented(reference.identifier) && reference.identifier.parent.type == "ExportSpecifier") {
+          checkParented(reference.identifier);
+
+          if (reference.identifier.parent.type == "ExportSpecifier") {
             // Simply exporting the import does not count as usage since it will get
             // resolved directly to the imported module.
             continue;
@@ -998,11 +1012,12 @@ export class ExternalModuleRecord extends CyclicModuleRecord {
     // A vastly simplified version for this special case.
     let algorithm = "https://tc39.es/ecma262/#sec-InnerModuleLinking";
 
+    /* istanbul ignore if: External modules can never be anything but a leaf in the stack. */
     if ([Status.linking, Status.linked, Status.evaluated].includes(this.status)) {
       return index;
     }
 
-    assert(
+    algorithmAssert(
       this.status == Status.unlinked,
       algorithm,
       "3",
@@ -1022,10 +1037,12 @@ export class ExternalModuleRecord extends CyclicModuleRecord {
     let algorithm = "https://tc39.es/ecma262/#sec-innermoduleevaluation";
 
     // Steps 2-4.
+    /* istanbul ignore if: External modules can never be anything but a leaf in the stack. */
     if ([Status.evaluated, Status.evaluating].includes(this.status)) {
       return index;
     }
-    assert(
+
+    algorithmAssert(
       this.status == Status.linked,
       algorithm,
       "4",

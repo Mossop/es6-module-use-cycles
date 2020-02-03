@@ -3,14 +3,9 @@ import { analyze, ScopeManager, Variable, Scope, AnalysisOptions } from "eslint-
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
 
-import { IssueType, assert, internalWarning, internalError } from "./issue";
+import { algorithmAssert, internalWarning, internalError, checkParented} from "./assert";
+import { IssueType } from "./issue";
 import { SourceTextModuleRecord, ImportEntry, ExportEntry, CyclicModuleRecord, LocalExportEntry } from "./modulerecord";
-
-type Parented<T> = T & { parent: ESTree.Node };
-
-export function isParented<T>(node: T): node is Parented<T> {
-  return "parent" in node;
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isNode(item: any): item is ESTree.Node {
@@ -94,18 +89,11 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
   for (let node of program.body) {
     switch (node.type) {
       case "ImportDeclaration": {
-        /* istanbul ignore next: The parser should have caught this and thrown. */
+        /* istanbul ignore if */
         if (typeof node.source.value != "string") {
-          module.addIssue({
-            module,
-            type: IssueType.ImportError,
-            message: "Import includes a non-string module specifier.",
-            specifier: String(node.source.value),
-            node,
-          });
-
-          continue;
+          internalError("Parser generated an ImportDeclaration with a non-string specifier");
         }
+
         let moduleSpecifier = node.source.value;
 
         if (moduleSpecifier.startsWith(".")) {
@@ -126,6 +114,8 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
 
         for (let specifier of node.specifiers) {
           let variables = scopeManager.getDeclaredVariables(specifier);
+
+          /* istanbul ignore if */
           if (variables.length != 1) {
             internalError(`Found no variable for a ${specifier.type} for ${moduleSpecifier}`);
           }
@@ -191,17 +181,9 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
       case "ExportNamedDeclaration": {
         let moduleSpecifier: string | null;
         if (node.source) {
-          /* istanbul ignore next: The parser should have caught this and thrown. */
+          /* istanbul ignore if */
           if (typeof node.source.value != "string") {
-            module.addIssue({
-              module,
-              type: IssueType.ImportError,
-              message: "Export includes a non-string module specifier.",
-              specifier: String(node.source.value),
-              node,
-            });
-
-            continue;
+            internalError("Parser generated an ExportNamedDeclaration with a non-string specifier.");
           }
 
           moduleSpecifier = node.source.value;
@@ -227,7 +209,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
 
         if (node.declaration) {
           // This is the `export var foo = ...;` form.
-          assert(
+          algorithmAssert(
             node.specifiers.length == 0 && !moduleSpecifier,
             "https://tc39.es/ecma262/#sec-exports-static-semantics-exportentries", "0",
             module
@@ -237,8 +219,9 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
             for (let varDeclarator of node.declaration.declarations) {
               if (varDeclarator.id.type == "Identifier") {
                 let variables = scopeManager.getDeclaredVariables(varDeclarator);
+                /* istanbul ignore if */
                 if (variables.length != 1) {
-                  console.warn(`Saw ${variables.length} variables from Identifier`);
+                  internalError("A VariableDeclarator should always define a variable.");
                 }
 
                 // Easy case, `var foo = bar;`
@@ -249,7 +232,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
                   moduleRequest: moduleSpecifier,
                   importName: null,
                   localName: varDeclarator.id.name,
-                  variable: variables.length > 0 ? variables[0] : null,
+                  variable: variables[0],
                 };
               } else if (varDeclarator.id.type == "ObjectPattern") {
                 // Object destructuring, `var { a, b: c } = foo;
@@ -282,8 +265,9 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
           } else if (node.declaration.id) {
             // function or class declaration.
             let variables = scopeManager.getDeclaredVariables(node.declaration);
-            if (variables.length != 1) {
-              console.warn(`Saw ${variables.length} variables from property ${node.declaration.id}`);
+            /* istanbul ignore if */
+            if (variables.length == 0) {
+              internalError(`A ${node.declaration.id} should always declare a variable.`);
             }
 
             yield {
@@ -293,7 +277,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
               moduleRequest: moduleSpecifier,
               importName: null,
               localName: node.declaration.id.name,
-              variable: variables.length > 0 ? variables[0] : null,
+              variable: variables[0],
             };
           }
 
@@ -343,17 +327,9 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
       }
       case "ExportAllDeclaration": {
         // export * from ...;
-        /* istanbul ignore next: The parser should have caught this and thrown. */
+        /* istanbul ignore if */
         if (typeof node.source.value != "string") {
-          module.addIssue({
-            module,
-            type: IssueType.ImportError,
-            message: "Export includes a non-string module specifier.",
-            specifier: String(node.source.value),
-            node,
-          });
-
-          continue;
+          internalError("The parser generated an ExportAllDeclaration with a non-string specifier.");
         }
 
         let moduleSpecifier = node.source.value;
@@ -393,9 +369,9 @@ const BASE_SCOPES = ["class", "function", "global"];
 
 export function getBaseScope(scope: Scope): Scope {
   while (!BASE_SCOPES.includes(scope.type)) {
+    /* istanbul ignore if */
     if (!scope.upper) {
-      console.warn(`Found a ${scope.type} with no upper scope.`);
-      return scope;
+      internalError(`Found a ${scope.type} with no upper scope.`);
     }
     scope = scope.upper;
   }
@@ -405,9 +381,12 @@ export function getBaseScope(scope: Scope): Scope {
 
 // Gets the variable for the function that creates this scope.
 export function getFunctionVariable(module: SourceTextModuleRecord, scopeManager: ScopeManager, scope: Scope): Variable | LocalExportEntry | null {
+  /* istanbul ignore if */
   if (scope.type != "function") {
     internalError(`Attempt to use ${scope.type} as a function scope.`);
   }
+
+  checkParented(scope.block);
 
   switch (scope.block.type) {
     case "FunctionDeclaration": {
@@ -415,7 +394,7 @@ export function getFunctionVariable(module: SourceTextModuleRecord, scopeManager
       if (!id) {
         // Part of an `export default function...`, no variable.
         let exportEntry = module.defaultExport;
-        if (!exportEntry || !isParented(scope.block) || scope.block.parent != exportEntry.declaration) {
+        if (!exportEntry || scope.block.parent != exportEntry.declaration) {
           internalError("Found a function declaration with no name but not as part of a default export.");
         }
 
@@ -423,34 +402,27 @@ export function getFunctionVariable(module: SourceTextModuleRecord, scopeManager
       }
 
       let variables = scopeManager.getDeclaredVariables(scope.block);
+      /* istanbul ignore if */
       if (variables.length == 0) {
-        return null;
+        internalError("A function declaration should always declare variables.");
       }
       return variables[0];
     }
     case "ArrowFunctionExpression":
     case "FunctionExpression": {
-      if (!isParented(scope.block)) {
-        return null;
-      }
-
       if (scope.block.parent.type != "VariableDeclarator") {
         return null;
       }
 
       let variables = scopeManager.getDeclaredVariables(scope.block.parent);
+      /* istanbul ignore if */
       if (variables.length == 0) {
-        console.warn("Found no variable from a VariableDeclarator.");
-        return null;
-      } else if (variables.length == 1) {
-        return variables[0];
+        internalError("A variable declarator should always declare a variable.");
       }
-
-      console.warn(`Found ${variables.length} variables for this variable declaration.`);
-      return null;
+      return variables[0];
     }
     default:
-      console.warn(`Attempting to get function for unknown type ${scope.block.type}`);
+      internalWarning(`Attempting to get function for unknown type ${scope.block.type}`);
       return null;
   }
 }

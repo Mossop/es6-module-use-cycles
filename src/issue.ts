@@ -134,22 +134,3 @@ export function intoLintResults(issues: Issue[]): CLIEngine.LintResult[] {
   results.push(currentResult);
   return results;
 }
-
-export function assert(check: boolean, algorithm: string, part: string, module: CyclicModuleRecord): void {
-  /* istanbul ignore else: We should be unable to trigger assertions in tests. */
-  if (check) {
-    return;
-  } else {
-    throw new Error(`Assertion in ${algorithm} part ${part} for module ${module.modulePath}`);
-  }
-}
-
-/* istanbul ignore next: We should be unable to trigger internal errors in tests. */
-export function internalError(message: string): never {
-  throw new Error(message);
-}
-
-/* istanbul ignore next: We should be unable to trigger internal errors in tests. */
-export function internalWarning(message: string): void {
-  console.warn(message);
-}
