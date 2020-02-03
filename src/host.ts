@@ -90,7 +90,10 @@ export class ModuleHost {
     this.moduleRecords.set(modulePath, module);
 
     let config = this.engine.getConfigForFile(modulePath);
+    let wd = process.cwd();
+    process.chdir(this.workingDirectory);
     module.parseCode(sourceText, config.parser || "espree", config.parserOptions);
+    process.chdir(wd);
     return module;
   }
 }

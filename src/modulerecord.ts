@@ -400,7 +400,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
   }
 
   public parseCode(code: string, parserId: string, options: Linter.ParserOptions | undefined): void {
-    let { program, scopeManager } = parseCode(code, parserId, options);
+    let { program, scopeManager } = parseCode(this.modulePath, code, parserId, options);
     this.scopeManager = scopeManager;
 
     // https://tc39.es/ecma262/#sec-parsemodule

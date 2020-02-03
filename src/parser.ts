@@ -51,7 +51,7 @@ interface ESLintParseResult {
   scopeManager?: ScopeManager;
 }
 
-export function parseCode(code: string, parserId: string, options: Linter.ParserOptions = {}): ParseResults {
+export function parseCode(filePath: string, code: string, parserId: string, options: Linter.ParserOptions = {}): ParseResults {
   function buildScopeManager(program: ESTree.Program): ScopeManager {
     let analysisOptions: AnalysisOptions = {
       ecmaVersion: options.ecmaVersion || 6,
@@ -61,10 +61,16 @@ export function parseCode(code: string, parserId: string, options: Linter.Parser
     return analyze(program, analysisOptions);
   }
 
-  let parserOptions = Object.assign({
-    range: true,
+  let parserOptions = Object.assign({}, options, {
     loc: true,
-  }, options);
+    range: true,
+    raw: true,
+    tokens: true,
+    comment: true,
+    eslintVisitorKeys: true,
+    eslintScopeManager: true,
+    filePath,
+  });
 
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   let parser = require(parserId) as ParserModule;
