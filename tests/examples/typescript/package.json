@@ -1,0 +1,21 @@
+{
+  "name": "typescript-example",
+  "version": "1.0.0",
+  "main": "entry.ts",
+  "eslintConfig": {
+    "root": true,
+    "parser": "@typescript-eslint/parser",
+    "parserOptions": {
+      "ecmaVersion": 6,
+      "sourceType": "module"
+    },
+    "env": {
+      "es6": true
+    }
+  },
+  "devDependencies": {
+    "@typescript-eslint/parser": "^2.18.0",
+    "eslint": "^6.8.0",
+    "typescript": "^3.7.5"
+  }
+}
