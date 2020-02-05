@@ -63,5 +63,6 @@ test("Correct filename list.", () => {
   expect(filenames).toStrictEqual([
     "entry.ts",
     "module.ts",
+    "types.ts",
   ]);
 });

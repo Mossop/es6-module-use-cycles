@@ -127,7 +127,7 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
           }
 
           switch (specifier.type) {
-            case "ImportSpecifier":
+            case "ImportSpecifier": {
               yield new ImportEntry(
                 specifier,
                 node,
@@ -137,7 +137,8 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
                 variables[0],
               );
               break;
-            case "ImportDefaultSpecifier":
+            }
+            case "ImportDefaultSpecifier": {
               yield new ImportEntry(
                 specifier,
                 node,
@@ -147,7 +148,8 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
                 variables[0],
               );
               break;
-            case "ImportNamespaceSpecifier":
+            }
+            case "ImportNamespaceSpecifier": {
               yield new ImportEntry(
                 specifier,
                 node,
@@ -157,8 +159,8 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
                 variables[0],
               );
               break;
+            }
           }
-
         }
         break;
       }
@@ -235,7 +237,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
                   node: varDeclarator,
                   declaration: node,
                   exportName: varDeclarator.id.name,
-                  moduleRequest: moduleSpecifier,
+                  specifier: moduleSpecifier,
                   importName: null,
                   localName: varDeclarator.id.name,
                   variable: variables[0],
@@ -257,7 +259,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
                     node: prop,
                     declaration: node,
                     exportName: prop.value.name,
-                    moduleRequest: moduleSpecifier,
+                    specifier: moduleSpecifier,
                     importName: null,
                     localName: prop.key.name,
                     variable: variables.length > 0 ? variables[0] : null,
@@ -268,23 +270,38 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
                 continue;
               }
             }
-          } else if (["FunctionDeclaration", "ClassDeclaration"].includes(node.declaration.type) && node.declaration.id) {
-            // function or class declaration.
-            let variables = scopeManager.getDeclaredVariables(node.declaration);
-            /* istanbul ignore if */
-            if (variables.length == 0) {
-              internalError(`A ${node.declaration.type} should always declare a variable.`);
-            }
+          } else if (node.declaration.id) {
+            if (["FunctionDeclaration", "ClassDeclaration"].includes(node.declaration.type)) {
+              // function or class declaration.
+              let variables = scopeManager.getDeclaredVariables(node.declaration);
+              /* istanbul ignore if */
+              if (variables.length == 0) {
+                internalError(`A ${node.declaration.type} should always declare a variable.`);
+              }
 
-            yield {
-              node: node.declaration,
-              declaration: node,
-              exportName: node.declaration.id.name,
-              moduleRequest: moduleSpecifier,
-              importName: null,
-              localName: node.declaration.id.name,
-              variable: variables[0],
-            };
+              yield {
+                node: node.declaration,
+                declaration: node,
+                exportName: node.declaration.id.name,
+                specifier: moduleSpecifier,
+                importName: null,
+                localName: node.declaration.id.name,
+                variable: variables[0],
+              };
+            } else {
+              // This is an export of something we don't recognise, a TypeScript type or interface for example.
+              yield {
+                node: node.declaration,
+                declaration: node,
+                exportName: node.declaration.id.name,
+                specifier: moduleSpecifier,
+                importName: null,
+                localName: node.declaration.id.name,
+                variable: null,
+              };
+            }
+          } else {
+            internalError("Unparseable ExportNamedDeclaration.");
           }
 
         } else {
@@ -295,7 +312,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
                 node: specifier,
                 declaration: node,
                 exportName: specifier.exported.name,
-                moduleRequest: moduleSpecifier,
+                specifier: moduleSpecifier,
                 importName: specifier.local.name,
                 localName: null,
                 variable: null,
@@ -308,7 +325,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
                 node: specifier,
                 declaration: node,
                 exportName: specifier.exported.name,
-                moduleRequest: moduleSpecifier,
+                specifier: moduleSpecifier,
                 importName: null,
                 localName: specifier.local.name,
                 variable,
@@ -324,7 +341,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
           node,
           declaration: node,
           exportName: "default",
-          moduleRequest: null,
+          specifier: null,
           importName: null,
           localName: "*default*",
           variable: null,
@@ -360,7 +377,7 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
           node,
           declaration: node,
           exportName: null,
-          moduleRequest: moduleSpecifier,
+          specifier: moduleSpecifier,
           importName: "*",
           localName: null,
           variable: null,

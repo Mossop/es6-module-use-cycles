@@ -5,3 +5,6 @@ export type Foo = string | number;
 export interface Bar {
   foo: string;
 }
+
+type Baz = string | null;
+export { Baz };

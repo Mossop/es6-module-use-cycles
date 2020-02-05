@@ -27,14 +27,14 @@ type ImportEntryJSON = Omit<ImportEntry, "node" | "declaration" | "variable" | "
   declaration: string;
 };
 
-export class ImportEntry {
+export class ImportEntry implements RequestedModule{
   public constructor(
     // The import specifier.
     public readonly node: ESTree.ImportDefaultSpecifier | ESTree.ImportNamespaceSpecifier | ESTree.ImportSpecifier,
     // The import declaration node.
     public readonly declaration: ESTree.ImportDeclaration,
     // The module specifier.
-    public readonly moduleRequest: string,
+    public readonly specifier: string,
     // The name of the export, may be "*" or "default".
     public readonly importName: string,
     // The name that is used locally.
@@ -47,7 +47,7 @@ export class ImportEntry {
     return {
       node: this.node.type,
       declaration: this.declaration.type,
-      moduleRequest: this.moduleRequest,
+      specifier: this.specifier,
       importName: this.importName,
       localName: this.localName,
     };
@@ -58,7 +58,7 @@ export interface ExportEntry {
   readonly node: ESTree.Node;
   readonly declaration: ESTree.Node;
   readonly exportName: string | null;
-  readonly moduleRequest: string | null;
+  readonly specifier: string | null;
   readonly importName: string | null;
   readonly localName: string | null;
   readonly variable: Variable | null;
@@ -74,7 +74,7 @@ export function exportEntryToJSON(entry: ExportEntry): ExportEntryJSON {
   return {
     node: entry.node.type,
     declaration: entry.declaration.type,
-    moduleRequest: entry.moduleRequest,
+    specifier: entry.specifier,
     importName: entry.importName,
     exportName: entry.exportName,
     localName: entry.localName,
@@ -91,7 +91,7 @@ export class LocalExportEntry implements ExportEntry {
   public readonly node: ESTree.Node;
   public readonly declaration: ESTree.Node;
   public readonly exportName: string;
-  public readonly moduleRequest: null = null;
+  public readonly specifier: null = null;
   public readonly importName: null = null;
   public readonly localName: string;
   public readonly variable: Variable | null;
@@ -99,12 +99,7 @@ export class LocalExportEntry implements ExportEntry {
 
   public constructor(public readonly module: CyclicModuleRecord, entry: ExportEntry) {
     /* istanbul ignore if: We should be unable to trigger assertions in tests. */
-    if (entry.moduleRequest || entry.importName || !entry.exportName || !entry.localName) {
-      internalError(`Invalid attempt to use an ExportEntry as a LocalExportEntry: ${JSON.stringify(exportEntryToJSON(entry))}`);
-    }
-
-    /* istanbul ignore if: We should be unable to trigger assertions in tests. */
-    if (!entry.variable && entry.localName != "*default*") {
+    if (entry.specifier || entry.importName || !entry.exportName || !entry.localName) {
       internalError(`Invalid attempt to use an ExportEntry as a LocalExportEntry: ${JSON.stringify(exportEntryToJSON(entry))}`);
     }
 
@@ -121,23 +116,23 @@ export class LocalExportEntry implements ExportEntry {
   }
 }
 
-export class IndirectExportEntry implements ExportEntry {
+export class IndirectExportEntry implements ExportEntry, RequestedModule {
   public readonly node: ESTree.Node;
   public readonly declaration: ESTree.Node;
   public readonly exportName: string;
-  public readonly moduleRequest: string;
+  public readonly specifier: string;
   public readonly importName: string;
   public readonly localName: null = null;
   public readonly variable: null = null;
 
   public constructor(public readonly module: CyclicModuleRecord, entry: ExportEntry) {
-    if (!entry.moduleRequest || !entry.importName || !entry.exportName || entry.localName || entry.variable) {
+    if (!entry.specifier || !entry.importName || !entry.exportName || entry.localName || entry.variable) {
       internalError(`Invalid attempt to use an ExportEntry as a IndirectExportEntry: ${JSON.stringify(exportEntryToJSON(entry))}`);
     }
 
     this.node = entry.node;
     this.declaration = entry.declaration;
-    this.moduleRequest = entry.moduleRequest;
+    this.specifier = entry.specifier;
     this.exportName = entry.exportName;
     this.importName = entry.importName;
   }
@@ -147,24 +142,24 @@ export class IndirectExportEntry implements ExportEntry {
   }
 }
 
-export class StarExportEntry implements ExportEntry {
+export class StarExportEntry implements ExportEntry, RequestedModule {
   public readonly node: ESTree.Node;
   public readonly declaration: ESTree.Node;
   public readonly exportName: null = null;
-  public readonly moduleRequest: string;
+  public readonly specifier: string;
   public readonly importName: "*" = "*";
   public readonly localName: null = null;
   public readonly variable: null = null;
 
   public constructor(public readonly module: CyclicModuleRecord, entry: ExportEntry) {
     /* istanbul ignore if: We should be unable to trigger assertions in tests. */
-    if (!entry.moduleRequest || entry.importName != "*" || entry.exportName || entry.localName || entry.variable) {
+    if (!entry.specifier || entry.importName != "*" || entry.exportName || entry.localName || entry.variable) {
       internalError(`Invalid attempt to use an ExportEntry as a StarExportEntry: ${JSON.stringify(exportEntryToJSON(entry))}`);
     }
 
     this.node = entry.node;
     this.declaration = entry.declaration;
-    this.moduleRequest = entry.moduleRequest;
+    this.specifier = entry.specifier;
   }
 
   public toJSON(): ExportEntryJSON {
@@ -177,7 +172,7 @@ export interface ModuleNamespace {
   exports: string[];
 }
 
-interface ResolvedBinding {
+export interface ResolvedBinding {
   module: CyclicModuleRecord;
   bindingName: string;
   exportEntry: LocalExportEntry | null;
@@ -188,7 +183,7 @@ interface ExportBinding {
   exportName: string;
 }
 
-interface RequestedModule {
+export interface RequestedModule {
   specifier: string;
   node: ESTree.Node;
   declaration: ESTree.Node;
@@ -412,7 +407,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
     // Steps 10-11.
     for (let exportEntry of exportEntries(this, program, scopeManager)) {
-      if (exportEntry.moduleRequest == null) {
+      if (exportEntry.specifier == null) {
         /* istanbul ignore if: We should be unable to trigger assertions in tests. */
         if (!exportEntry.localName) {
           internalError("An export with no module specifier must have a local name.");
@@ -430,7 +425,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
             let entry = new IndirectExportEntry(this, {
               node: exportEntry.node,
               declaration: exportEntry.declaration,
-              moduleRequest: importEntry.moduleRequest,
+              specifier: importEntry.specifier,
               importName: importEntry.importName,
               localName: null,
               exportName: exportEntry.exportName,
@@ -503,7 +498,11 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
     // Step 9.
     for (let required of this.getRequestedModules()) {
-      let requiredModule = this.host.resolveImportedModule(this, required.specifier);
+      let requiredModule = this.host.resolveImportedModule(this, required);
+      // This will have been reported during parsing.
+      if (!requiredModule) {
+        continue;
+      }
 
       index = requiredModule.innerModuleLinking(stack, index);
 
@@ -587,7 +586,11 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
     // Step 10.
     for (let required of this.getRequestedModules()) {
-      let requiredModule = this.host.resolveImportedModule(this, required.specifier);
+      let requiredModule = this.host.resolveImportedModule(this, required);
+      // This will have been reported during parsing.
+      if (!requiredModule) {
+        continue;
+      }
 
       index = requiredModule.innerModuleEvaluation(stack, executeStack, index);
 
@@ -657,34 +660,34 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     return index;
   }
 
-  public getRequestedModules(): RequestedModule[] {
+  public getRequestedModules(): Iterable<RequestedModule> {
     let list: Map<string, RequestedModule> = new Map();
 
     for (let importEntry of this.importEntries) {
-      list.set(importEntry.moduleRequest, {
-        specifier: importEntry.moduleRequest,
+      list.set(importEntry.specifier, {
+        specifier: importEntry.specifier,
         node: importEntry.node,
         declaration: importEntry.declaration,
       });
     }
 
     for (let exportEntry of this.indirectExportEntries.values()) {
-      list.set(exportEntry.moduleRequest, {
-        specifier: exportEntry.moduleRequest,
+      list.set(exportEntry.specifier, {
+        specifier: exportEntry.specifier,
         node: exportEntry.node,
         declaration: exportEntry.declaration,
       });
     }
 
     for (let exportEntry of this.starExportEntries) {
-      list.set(exportEntry.moduleRequest, {
-        specifier: exportEntry.moduleRequest,
+      list.set(exportEntry.specifier, {
+        specifier: exportEntry.specifier,
         node: exportEntry.node,
         declaration: exportEntry.declaration,
       });
     }
 
-    return Array.from(list.values());
+    return list.values();
   }
 
   public getImportEntry(localName: string): ImportEntry | undefined {
@@ -711,7 +714,11 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
 
     // Step 9
     for (let exp of this.starExportEntries) {
-      let requestedModule = this.host.resolveImportedModule(this, exp.moduleRequest);
+      let requestedModule = this.host.resolveImportedModule(this, exp);
+      // This will have been reported during parsing.
+      if (!requestedModule) {
+        continue;
+      }
 
       let starNames = requestedModule.getExportedNames(exportStarSet);
       for (let name of starNames) {
@@ -754,16 +761,17 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     // Step 7.
     let indirectEntry = this.indirectExportEntries.get(exportName);
     if (indirectEntry) {
-      let importedModule = this.host.resolveImportedModule(this, indirectEntry.moduleRequest);
-
-      if (indirectEntry.importName == "*") {
-        return {
-          module: importedModule,
-          bindingName: "*namespace",
-          exportEntry: null,
-        };
+      let importedModule = this.host.resolveImportedModule(this, indirectEntry);
+      if (importedModule) {
+        if (indirectEntry.importName == "*") {
+          return {
+            module: importedModule,
+            bindingName: "*namespace",
+            exportEntry: null,
+          };
+        }
+        return importedModule.resolveExport(indirectEntry.importName, resolveSet);
       }
-      return importedModule.resolveExport(indirectEntry.importName, resolveSet);
     }
 
     // Step 8.
@@ -774,7 +782,11 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     // Steps 9-10.
     let starResolution: ResolvedBinding | null = null;
     for (let exportEntry of this.starExportEntries) {
-      let importedModule = this.host.resolveImportedModule(this, exportEntry.moduleRequest);
+      let importedModule = this.host.resolveImportedModule(this, exportEntry);
+      // This will have been reported during parsing.
+      if (!importedModule) {
+        continue;
+      }
 
       let resolution = importedModule.resolveExport(exportName, resolveSet);
       if (resolution == "ambiguous") {
@@ -826,8 +838,13 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     this.environmentRecord = new EnvironmentRecord();
 
     // Step 9.
-    for (let importEntry of this.importEntries) {
-      let importedModule = this.host.resolveImportedModule(this, importEntry.moduleRequest);
+    for (let i = 0; i < this.importEntries.length; i++) {
+      let importEntry = this.importEntries[i];
+      let importedModule = this.host.resolveImportedModule(this, importEntry);
+      // This will have been reported during parsing.
+      if (!importedModule) {
+        continue;
+      }
 
       if (importEntry.importName == "*") {
         this.environmentRecord.createImmutableBinding(importEntry.localName, importedModule.getModuleNamespace());
@@ -839,28 +856,44 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
             module: this,
             node: importEntry.node,
             type: IssueType.ImportError,
-            message: `Import of ${importEntry.importName} could not be resolved by ${importedModule.relativePath}.`,
-            specifier: importEntry.moduleRequest,
+            message: `Import of '${name}' could not be resolved by ${this.relativePath}.`,
+            specifier: importEntry.specifier,
           });
 
+          // Remove this import from the list of imports so we don't hit this
+          // error again.
+          this.importEntries.splice(i, 1);
+          i--;
           continue;
         }
-  
+
         if (resolution == "ambiguous") {
           this.addIssue({
             module: this,
             node: importEntry.node,
             type: IssueType.ImportError,
-            message: `Import of ${importEntry.importName} resolves ambiguously.`,
-            specifier: importEntry.moduleRequest,
+            message: `Import of '${name}' resolves ambiguously.`,
+            specifier: importEntry.specifier,
           });
 
+          // Remove this import from the list of imports so we don't hit this
+          // error again.
+          this.importEntries.splice(i, 1);
+          i--;
           continue;
         }
 
         if (!resolution.exportEntry) {
           this.environmentRecord.createImmutableBinding(importEntry.localName, resolution.module.getModuleNamespace());
         } else {
+          if (!resolution.exportEntry.variable && resolution.exportEntry.localName != "*default*") {
+            // This is an import of something unknown like a TypeScript type.
+            // Assume it doesn't impact module cycles.
+            this.importEntries.splice(i, 1);
+            i--;
+            continue;
+          }
+
           this.environmentRecord.createImportBinding(importEntry.localName, resolution.module, resolution.bindingName);
         }
       }
@@ -947,7 +980,12 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
     }
 
     for (let importEntry of this.importEntries) {
-      let importedModule = this.host.resolveImportedModule(this, importEntry.moduleRequest);
+      let importedModule = this.host.resolveImportedModule(this, importEntry);
+      // This will have been reported during parsing.
+      if (!importedModule) {
+        continue;
+      }
+
       let exported = importedModule.resolveExport(importEntry.importName);
       if (!exported || exported == "ambiguous") {
         continue;

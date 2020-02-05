@@ -4,12 +4,12 @@ import path from "path";
 import { CLIEngine } from "eslint";
 import resolve from "resolve";
 
-import { Issue } from "./issue";
-import { SourceTextModuleRecord, CyclicModuleRecord, ExternalModuleRecord } from "./modulerecord";
+import { Issue, IssueType } from "./issue";
+import { SourceTextModuleRecord, CyclicModuleRecord, ExternalModuleRecord, RequestedModule } from "./modulerecord";
 
 export class ModuleHost {
   private readonly engine: CLIEngine;
-  private moduleRecords: Map<string, SourceTextModuleRecord> = new Map();
+  private moduleRecords: Map<string, SourceTextModuleRecord | null> = new Map();
   private externalModules: Map<string, ExternalModuleRecord> = new Map();
 
   public constructor(
@@ -38,7 +38,9 @@ export class ModuleHost {
   public getIssues(): Issue[] {
     let issues: Issue[] = [];
     for (let module of this.moduleRecords.values()) {
-      issues.push(...module.getIssues());
+      if (module) {
+        issues.push(...module.getIssues());
+      }
     }
 
     return issues;
@@ -51,26 +53,37 @@ export class ModuleHost {
     });
   }
 
-  public resolveImportedModule(referencingModule: CyclicModuleRecord, specifier: string): CyclicModuleRecord {
-    if (!specifier.startsWith(".")) {
-      let module = this.externalModules.get(specifier);
+  public resolveImportedModule(referencingModule: CyclicModuleRecord, requestedModule: RequestedModule): CyclicModuleRecord | null {
+    if (!requestedModule.specifier.startsWith(".")) {
+      let module = this.externalModules.get(requestedModule.specifier);
       if (!module) {
-        module = new ExternalModuleRecord(this.workingDirectory, this, specifier);
-        this.externalModules.set(specifier, module);
+        module = new ExternalModuleRecord(this.workingDirectory, this, requestedModule.specifier);
+        this.externalModules.set(requestedModule.specifier, module);
       }
       return module;
     }
 
     // Resolve a module to its target file.
-    let modulePath = this.resolveModule(referencingModule, specifier);
+    let modulePath = this.resolveModule(referencingModule, requestedModule.specifier);
 
     let module = this.moduleRecords.get(modulePath);
-    if (module) {
+    if (module !== undefined) {
       return module;
     }
 
-    let sourceText = fs.readFileSync(modulePath, { encoding: "utf8" });
-    return this.parseModule(sourceText, modulePath);
+    try {
+      let sourceText = fs.readFileSync(modulePath, { encoding: "utf8" });
+      return this.parseModule(sourceText, modulePath);
+    } catch (e) {
+      referencingModule.addIssue({
+        type: IssueType.ImportError,
+        specifier: requestedModule.specifier,
+        module: referencingModule,
+        node: requestedModule.node,
+        message: `Failed to parse ${modulePath}: ${e}`,
+      });
+      return null;
+    }
   }
 
   public parseEntrypoint(modulePath: string): SourceTextModuleRecord | null {
@@ -85,15 +98,20 @@ export class ModuleHost {
     return module;
   }
 
-  public parseModule(sourceText: string, modulePath: string): SourceTextModuleRecord {
+  private parseModule(sourceText: string, modulePath: string): SourceTextModuleRecord {
     let module: SourceTextModuleRecord = new SourceTextModuleRecord(this, modulePath);
     this.moduleRecords.set(modulePath, module);
 
-    let config = this.engine.getConfigForFile(modulePath);
-    let wd = process.cwd();
-    process.chdir(this.workingDirectory);
-    module.parseCode(sourceText, config.parser || "espree", config.parserOptions);
-    process.chdir(wd);
-    return module;
+    try {
+      let config = this.engine.getConfigForFile(modulePath);
+      let wd = process.cwd();
+      process.chdir(this.workingDirectory);
+      module.parseCode(sourceText, config.parser || "espree", config.parserOptions);
+      process.chdir(wd);
+      return module;
+    } catch (e) {
+      this.moduleRecords.set(modulePath, null);
+      throw e;
+    }
   }
 }
