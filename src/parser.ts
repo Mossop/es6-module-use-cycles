@@ -268,12 +268,12 @@ export function* exportEntries(module: SourceTextModuleRecord, program: ESTree.P
                 continue;
               }
             }
-          } else if (node.declaration.id) {
+          } else if (["FunctionDeclaration", "ClassDeclaration"].includes(node.declaration.type) && node.declaration.id) {
             // function or class declaration.
             let variables = scopeManager.getDeclaredVariables(node.declaration);
             /* istanbul ignore if */
             if (variables.length == 0) {
-              internalError(`A ${node.declaration.id} should always declare a variable.`);
+              internalError(`A ${node.declaration.type} should always declare a variable.`);
             }
 
             yield {
