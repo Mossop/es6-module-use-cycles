@@ -901,7 +901,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
   }
 
   private markFunctionVariableUnusable(importEntry: ImportEntry, functionVariable: Variable | LocalExportEntry,
-    currentReason: string, issue: CycleIssue): void {
+    currentReason: string, issue: CycleIssue, stack: Variable[] = []): void {
     /* istanbul ignore if: This should always have been set by now. */
     if (!this.scopeManager) {
       internalError(`Executing module ${this.relativePath} before it has been parsed.`);
@@ -915,6 +915,10 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
         exportBinding: issue.exportBinding,
       });
     } else {
+      if (stack.includes(functionVariable)) {
+        return;
+      }
+
       reasons.unshift(`  calling '${functionVariable.name}' from '${this.relativePath}' ${currentReason}`);
 
       let exportEntry = this.localExportEntries.get(functionVariable.name);
@@ -966,7 +970,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
             this.markFunctionVariableUnusable(importEntry, outer, `calls '${functionVariable.name}'.`, {
               reasons,
               exportBinding: issue.exportBinding,
-            });
+            }, [...stack, functionVariable]);
           }
         }
       }
