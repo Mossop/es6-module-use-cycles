@@ -10,6 +10,10 @@ cyclic dependencies amongst my modules. There are a couple of tools out there
 that can to a certain extent detect and warn you about this but none of them
 actually showed me the issue that needed resolving. So I set about writing my own.
 
+## Project status
+
+This project should currently be considered as unstable and under active (or as active as I can manage in my spare time) development. It currently does some things, mostly without throwing exceptions. Some of those things are known to be correct and useful. Some of those things are known to be wrong. I think it's pretty close but right now I wouldn't use it except as a way to hint at what you might want to investigate further.
+
 ## Safe and unsafe dependency cycles
 
 The challenge with detecting bugs caused by dependency cycles is that JavaScript
