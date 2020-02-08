@@ -2,10 +2,10 @@ import fs from "fs";
 import path from "path";
 
 import formatter from "eslint/lib/cli-engine/formatters/stylish";
+import { ModuleHost, Issue, IssueType } from "module-cycles-parser";
 
 import { buildArgumentParser, Options, DefaultOptions } from "./cli";
-import { ModuleHost } from "./host";
-import { intoLintResults, Issue, IssueType } from "./issue";
+import { intoLintResults } from "./formatter";
 
 export function findWorkingDirectory(filename: string): string {
   let directory = path.dirname(filename);

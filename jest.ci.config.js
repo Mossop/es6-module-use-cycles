@@ -3,6 +3,7 @@ module.exports = Object.assign({}, require("./jest.config"), {
 
   coveragePathIgnorePatterns: [
     "/node_modules/",
-    "<rootDir>/tests/",
+    "/tests/",
+    ".test.ts$",
   ],
 });

@@ -1,8 +1,8 @@
 import path from "path";
 
-import { buildArgumentParser } from "./cli";
+import { buildArgumentParser } from "../src/cli";
 
-let examples = path.resolve(__dirname, path.join("..", "tests", "examples"));
+let examples = path.resolve(__dirname, path.join("examples"));
 
 test("Parses basic arguments", async() => {
   let parser = buildArgumentParser();

@@ -104,10 +104,10 @@ module.exports = {
   // testLocationInResults: false,
 
   // The glob patterns Jest uses to detect test files
-  testMatch: [
-    "**/tests/*.[jt]s?(x)",
-    "**/?(*.)+(spec|test).[tj]s?(x)"
-  ],
+  // testMatch: [
+  //   "packages/*/tests/*.[jt]s?(x)",
+  //   "packages/*/src/**/*.(spec|test).[tj]s?(x)"
+  // ],
 
   // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
   // testPathIgnorePatterns: [
@@ -115,7 +115,10 @@ module.exports = {
   // ],
 
   // The regexp pattern or array of patterns that Jest uses to detect test files
-  // testRegex: [],
+  testRegex: [
+    "packages/[^/]*/tests/[^/.][^/]*\\.[jt]sx?",
+    "packages/[^/]*/src/[^/.].*\\.(spec|test)\\.[tj]sx?",
+  ],
 
   // This option allows the use of a custom results processor
   // testResultsProcessor: null,

@@ -1,6 +1,6 @@
-node_modules
+node_modules/
 .*
-/bin
-/coverage
-!/.github
+bin/
+/coverage/
+!/.github/
 

@@ -14,7 +14,5 @@ jobs:
       uses: actions/setup-node@v1.1.0
     - name: Install
       run: npm install
-    - name: Build TypeScript
-      run: npm run build
     - name: Run tests
       run: npm test

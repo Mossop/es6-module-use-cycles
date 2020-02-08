@@ -92,8 +92,10 @@ export function buildArgumentParser(): ArgumentParser {
   });
 
   const parser = yargs
+    .usage("npx module-cycles <options> [entrypoint...]")
     .command("*", "Detect module cycles.", (yargs: yargs.Argv<{}>) => {
       yargs
+        .usage("npx module-cycles <options> [entrypoints...]")
         .positional("entrypoints", {
           type: "string",
           description: "The scripts that are the entry points to your application.",

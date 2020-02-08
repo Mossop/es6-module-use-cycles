@@ -1,24 +1,14 @@
 {
-  "name": "es6-module-use-cycles",
-  "version": "1.0.0",
-  "description": "Detects problematic cycles across ES6 modules.",
-  "main": "bin/host.js",
-  "bin": {
-    "cycles": "./bin/cycles.js"
-  },
+  "name": "root",
+  "private": true,
   "scripts": {
-    "build": "tsc -p ./tsconfig.build.json",
-    "prestart": "tsc -p ./tsconfig.build.json",
-    "start": "node -r source-map-support/register bin/cycles.js",
     "lint": "eslint --ext .ts,.js .",
+    "pretest": "lerna run pretest",
     "test": "jest",
-    "postinstall": "subpkg install"
+    "postinstall": "lerna bootstrap",
+    "prestart": "lerna run build",
+    "start": "cd packages/cli && npm start -- $@"
   },
-  "subPackages": [
-    "tests/examples/typescript"
-  ],
-  "author": "Dave Townsend <dtownsend@oxymoronical.com>",
-  "license": "MIT",
   "devDependencies": {
     "@types/eslint": "^6.1.6",
     "@types/eslint-scope": "^3.7.0",
@@ -29,19 +19,14 @@
     "@typescript-eslint/eslint-plugin": "^2.17.0",
     "@typescript-eslint/eslint-plugin-tslint": "^2.17.0",
     "@typescript-eslint/parser": "^2.17.0",
+    "eslint": "^6.8.0",
     "eslint-plugin-import": "^2.20.0",
     "jest": "^24.9.0",
+    "lerna": "^3.20.2",
     "source-map-support": "^0.5.16",
     "subpackage": "^1.1.0",
     "ts-jest": "^24.3.0",
     "tslint": "^5.20.1",
     "typescript": "^3.7.5"
-  },
-  "dependencies": {
-    "eslint": "^6.8.0",
-    "eslint-scope": "^5.0.0",
-    "espree": "^6.1.2",
-    "resolve": "^1.15.0",
-    "yargs": "^15.1.0"
   }
 }

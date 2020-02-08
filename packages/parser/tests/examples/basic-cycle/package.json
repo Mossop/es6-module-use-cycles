@@ -1,0 +1,15 @@
+{
+  "name": "basic-cycle",
+  "version": "1.0.0",
+  "main": "entry.js",
+  "eslintConfig": {
+    "root": true,
+    "parserOptions": {
+      "ecmaVersion": 6,
+      "sourceType": "module"
+    },
+    "env": {
+      "es6": true
+    }
+  }
+}

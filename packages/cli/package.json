@@ -1,0 +1,23 @@
+{
+  "name": "module-cycles",
+  "version": "1.0.0",
+  "description": "Detects problematic cycles across ES6 modules.",
+  "main": "bin/index.js",
+  "bin": {
+    "module-cycles": "./bin/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p ./tsconfig.build.json",
+    "prepare": "npm run build",
+    "start": "node -r source-map-support/register bin/index.js"
+  },
+  "author": "Dave Townsend <dtownsend@oxymoronical.com>",
+  "license": "MIT",
+  "dependencies": {
+    "module-cycles-parser": "^1.0.0",
+    "yargs": "^15.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^3.7.5"
+  }
+}

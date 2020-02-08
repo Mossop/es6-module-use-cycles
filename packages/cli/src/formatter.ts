@@ -1,8 +1,7 @@
-import { Linter, CLIEngine } from "eslint";
+import { CLIEngine, Linter } from "eslint";
 // eslint-disable-next-line import/no-unresolved
 import * as ESTree from "estree";
-
-import { CyclicModuleRecord, ImportEntry } from "./modulerecord";
+import { Issue, IssueType } from "module-cycles-parser";
 
 export enum Severity {
   Warning = 1,
@@ -48,53 +47,6 @@ export function buildLintMessage(issue: Issue): Linter.LintMessage {
     ...getPosition(issue.node),
   };
 }
-
-export enum IssueType {
-  ImportCycle = "import-cycle",
-  Assertion = "assertion",
-  InternalError = "internal-error",
-  ImportError = "import-error",
-  ExportError = "export-error",
-  UseBeforeExecution = "use-before-execution",
-}
-
-interface BaseIssue {
-  module: CyclicModuleRecord;
-  node: ESTree.Node | null;
-  message: string;
-}
-
-export interface ImportCycle extends BaseIssue {
-  type: IssueType.ImportCycle;
-  stack: CyclicModuleRecord[];
-}
-
-export interface ImportError extends BaseIssue {
-  type: IssueType.ImportError;
-  specifier: string;
-}
-
-export interface ExportError extends BaseIssue {
-  type: IssueType.ExportError;
-}
-
-export interface Assertion extends BaseIssue {
-  type: IssueType.Assertion;
-  algorithm: string;
-  part: string;
-}
-
-export interface InternalError extends BaseIssue {
-  type: IssueType.InternalError;
-  message: string;
-}
-
-export interface UseBeforeExecutionIssue extends BaseIssue {
-  type: IssueType.UseBeforeExecution;
-  importEntry: ImportEntry;
-}
-
-export type Issue = Assertion | InternalError | ImportError | ExportError | ImportCycle | UseBeforeExecutionIssue;
 
 export function intoLintResults(issues: Issue[]): CLIEngine.LintResult[] {
   let results: CLIEngine.LintResult[] = [];

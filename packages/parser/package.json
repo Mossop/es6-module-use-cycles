@@ -1,0 +1,28 @@
+{
+  "name": "module-cycles-parser",
+  "version": "1.0.0",
+  "description": "Detects problematic cycles across ES6 modules.",
+  "main": "bin/index.js",
+  "types": "bin/index.d.ts",
+  "typings": "bin/index.d.ts",
+  "scripts": {
+    "build": "tsc -p ./tsconfig.build.json",
+    "prepare": "npm run build",
+    "pretest": "subpkg install"
+  },
+  "subPackages": [
+    "tests/examples/typescript"
+  ],
+  "author": "Dave Townsend <dtownsend@oxymoronical.com>",
+  "license": "MIT",
+  "dependencies": {
+    "eslint": "^6.8.0",
+    "eslint-scope": "^5.0.0",
+    "espree": "^6.1.2",
+    "resolve": "^1.15.0",
+    "yargs": "^15.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^3.7.5"
+  }
+}
