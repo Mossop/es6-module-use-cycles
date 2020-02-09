@@ -1,9 +1,12 @@
 {
   "name": "root",
   "private": true,
+  "subPackages": [
+    "examples/typescript"
+  ],
   "scripts": {
     "lint": "eslint --ext .ts,.js .",
-    "pretest": "lerna run pretest",
+    "pretest": "subpkg install",
     "test": "jest",
     "postinstall": "lerna bootstrap",
     "prestart": "lerna run build",

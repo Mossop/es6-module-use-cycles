@@ -18,7 +18,7 @@
   "include": [
     "*.js",
     "packages/*/src/**/*.ts",
-    "packages/*/tests/*.ts",
+    "packages/*/tests/**/*.ts",
   ],
   "exclude": [
     "node_modules"

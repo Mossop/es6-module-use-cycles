@@ -3,11 +3,10 @@ import path from "path";
 import { ModuleHost, IssueType } from "module-cycles-parser";
 
 import { Severity, buildLintMessage, intoLintResults } from "../src/formatter";
-
-let examples = path.resolve(__dirname, path.join("examples"));
+import { getExample } from "./helpers/utils";
 
 test("Lint results", () => {
-  let example = path.join(examples, "indirect-imports");
+  let example = getExample("indirect-imports");
   const host = new ModuleHost([".js"], example);
   host.parseEntrypoint(path.join(example, "entry.js"));
 

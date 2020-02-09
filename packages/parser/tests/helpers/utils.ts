@@ -20,7 +20,7 @@ export function getExample(): string {
   let parent = module.parent.filename;
 
   let name = path.basename(parent, path.extname(parent));
-  return path.join(path.dirname(parent), "examples", name);
+  return path.resolve(path.dirname(parent), path.join("..", "..", "..", "examples", name));
 }
 
 export function testableIssues([...issues]: Issue[]): TestableIssue[] {

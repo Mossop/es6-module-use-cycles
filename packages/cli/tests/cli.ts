@@ -1,12 +1,11 @@
 import path from "path";
 
 import { buildArgumentParser } from "../src/cli";
-
-let examples = path.resolve(__dirname, path.join("examples"));
+import { getExample } from "./helpers/utils";
 
 test("Parses basic arguments", async() => {
   let parser = buildArgumentParser();
-  let file = path.join(examples, "basic-cycle", "entry.js");
+  let file = path.join(getExample("basic-cycle"), "entry.js");
   expect(await parser.parse([file])).toMatchObject({
     entrypoints: [file],
     extensions: [".js"],
@@ -16,8 +15,8 @@ test("Parses basic arguments", async() => {
 
 test("Allow warnings", async() => {
   let parser = buildArgumentParser();
-  let file = path.join(examples, "basic-cycle", "entry.js");
-  let module = path.join(examples, "basic-cycle", "entry");
+  let file = path.join(getExample("basic-cycle"), "entry.js");
+  let module = path.join(getExample("basic-cycle"), "entry");
   expect(await parser.parse([module, "--allCycles"])).toMatchObject({
     entrypoints: [file],
     extensions: [".js"],
@@ -31,10 +30,10 @@ test("Fails on empty", () => {
 });
 
 test("Parses extensions", async() => {
-  let file1 = path.join(examples, "basic-cycle", "entry.js");
-  let module = path.join(examples, "basic-cycle");
-  let file2 = path.join(examples, "basic-cycle", "module.js");
-  let file3 = path.join(examples, "indirect-imports", "direct.js");
+  let file1 = path.join(getExample("basic-cycle"), "entry.js");
+  let module = getExample("basic-cycle");
+  let file2 = path.join(getExample("basic-cycle"), "module.js");
+  let file3 = path.join(getExample("indirect-imports"), "direct.js");
 
   let parser = buildArgumentParser();
   let args = [
