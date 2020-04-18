@@ -1,3 +1,4 @@
+import { TSESTree } from "@typescript-eslint/typescript-estree";
 import { Linter } from "eslint";
 import { analyze, ScopeManager, Variable, Scope, AnalysisOptions } from "eslint-scope";
 // eslint-disable-next-line import/no-unresolved
@@ -10,6 +11,10 @@ import { SourceTextModuleRecord, ImportEntry, ExportEntry, CyclicModuleRecord, L
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isNode(item: any): item is ESTree.Node {
   return item && (typeof item == "object") && (typeof item.type == "string");
+}
+
+function isTSImportDeclaration(node: object): node is TSESTree.ImportDeclaration {
+  return node["type"] == "ImportDeclaration" && "importKind" in node;
 }
 
 function addParents(node: ESTree.Node): void {
@@ -95,6 +100,11 @@ export function* importEntries(module: CyclicModuleRecord, program: ESTree.Progr
   for (let node of program.body) {
     switch (node.type) {
       case "ImportDeclaration": {
+        if (isTSImportDeclaration(node) && node.importKind == "type") {
+          // Type imports are removed at compile time and so do not cause module cycles.
+          continue;
+        }
+
         /* istanbul ignore if */
         if (typeof node.source.value != "string") {
           internalError("Parser generated an ImportDeclaration with a non-string specifier");
